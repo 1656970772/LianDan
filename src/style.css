@@ -1,0 +1,64 @@
+:root {
+  font-family:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #edf0f2;
+  background: #101418;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: #101418;
+}
+
+#app {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+}
+
+body[data-app-state="ready"],
+body[data-app-state="game-loading"] {
+  overflow: hidden;
+}
+
+body[data-app-state="config-error"] #app {
+  padding: clamp(1rem, 4vw, 2rem);
+  color: #20211f;
+  background: #f3f4f1;
+}
+
+.bootstrap-status {
+  width: min(calc(100% - 4rem), 40rem);
+  padding-inline-start: 1.25rem;
+  border-inline-start: 0.25rem solid #9a3f32;
+  color: #edf0f2;
+}
+
+.bootstrap-status h1 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.bootstrap-status p {
+  margin: 1rem 0 0;
+  color: #b9bbb5;
+  font-size: 1rem;
+  line-height: 1.6;
+}

@@ -1,0 +1,283 @@
+import {
+  FIRE_SIZE_MAX,
+  FIRE_SIZE_MIN,
+  validateRuleCommandPayload,
+  type RuleCommand,
+} from './commands.ts'
+
+export type DomainStatus = 'ready' | 'extracting' | 'failed' | 'completed'
+export type PearlType = 'medicinalLiquid' | 'slag' | 'impurity'
+export type PearlTerminalOutcome = 'caught' | 'missed' | 'burned'
+
+export type Vector2 = Readonly<{ x: number; y: number }>
+
+export type InventoryBatchRule = Readonly<{
+  batchId: string
+  materialDefinitionId: string
+  servings: number
+  volumePerServing: number
+}>
+
+export type PrototypeRules = Readonly<{
+  availableFireSourceIds: readonly string[]
+  initialFireSize: number
+  initialFireDirection: Vector2
+  inventoryBatches: readonly InventoryBatchRule[]
+}>
+
+export type MaterialInstance = Readonly<{
+  materialInstanceId: string
+  materialDefinitionId: string
+  inventoryBatchId: string
+  initialVolume: number
+  remainingVolume: number
+}>
+
+export type PearlSource = Readonly<{
+  sourceMaterialDefinitionId: string
+  sourceMaterialInstanceId: string
+  pearlType: PearlType
+}>
+
+export type VolumeByPearlType = Readonly<Partial<Record<PearlType, number>>>
+
+export type DomainLedger = Readonly<{
+  dissolvedVolumes: Readonly<Record<string, VolumeByPearlType>>
+  bornVolumes: Readonly<Record<string, VolumeByPearlType>>
+  pearlVolumes: Readonly<Record<string, number>>
+  pearlSources: Readonly<Record<string, PearlSource>>
+  terminalPearls: Readonly<Record<string, PearlTerminalOutcome>>
+  naturalLossVolume: number
+  inheritedLossVolume: number
+}>
+
+export type DomainState = Readonly<{
+  status: DomainStatus
+  inventory: Readonly<Record<string, number>>
+  selectedMaterialBatchId: string | null
+  materialInstances: readonly MaterialInstance[]
+  nextMaterialInstanceOrdinal: number
+  equippedFireSourceId: string | null
+  fireSize: number
+  isSpraying: boolean
+  fireDirection: Vector2
+  containerAxis: number
+  flameThrustEnabled: boolean
+  finishRequested: boolean
+  ledger: DomainLedger
+  lastCommittedTick: number
+}>
+
+export type DomainCommandError =
+  | 'DOMAIN_COMMAND_NOT_ALLOWED'
+  | 'DOMAIN_COMMAND_PAYLOAD_INVALID'
+
+export type DomainCommandResult =
+  | Readonly<{ ok: true; state: DomainState }>
+  | Readonly<{ ok: false; error: DomainCommandError; state: DomainState }>
+
+function emptyLedger(): DomainLedger {
+  return {
+    dissolvedVolumes: {},
+    bornVolumes: {},
+    pearlVolumes: {},
+    pearlSources: {},
+    terminalPearls: {},
+    naturalLossVolume: 0,
+    inheritedLossVolume: 0,
+  }
+}
+
+export function createDomainState(rules: PrototypeRules): DomainState {
+  const inventory: Record<string, number> = {}
+  for (const batch of rules.inventoryBatches) inventory[batch.batchId] = batch.servings
+
+  return {
+    status: 'ready',
+    inventory,
+    selectedMaterialBatchId: null,
+    materialInstances: [],
+    nextMaterialInstanceOrdinal: 1,
+    equippedFireSourceId: null,
+    fireSize: rules.initialFireSize,
+    isSpraying: false,
+    fireDirection: { ...rules.initialFireDirection },
+    containerAxis: 0,
+    flameThrustEnabled: false,
+    finishRequested: false,
+    ledger: emptyLedger(),
+    lastCommittedTick: -1,
+  }
+}
+
+export function deriveActivePearlCount(state: DomainState): number {
+  let count = 0
+  for (const pearlId of Object.keys(state.ledger.pearlVolumes)) {
+    if (state.ledger.terminalPearls[pearlId] === undefined) count += 1
+  }
+  return count
+}
+
+export function deriveCanFinish(state: DomainState): boolean {
+  return (
+    state.status === 'extracting' &&
+    state.materialInstances.length > 0 &&
+    state.materialInstances.every((instance) => instance.remainingVolume === 0) &&
+    deriveActivePearlCount(state) === 0
+  )
+}
+
+function isActive(status: DomainStatus): boolean {
+  return status === 'ready' || status === 'extracting'
+}
+
+export function isRuleCommandAllowed(
+  state: DomainState,
+  command: RuleCommand,
+  _rules: PrototypeRules,
+): boolean {
+  if (!validateRuleCommandPayload(command)) return false
+  if (!isActive(state.status)) return false
+
+  switch (command.type) {
+    case 'SelectFireSource':
+      return state.equippedFireSourceId === null
+    case 'SetSpraying':
+      return !command.payload.spraying || state.equippedFireSourceId !== null
+    case 'RequestFinish':
+      return deriveCanFinish(state)
+    case 'PreselectMaterial':
+    case 'CancelMaterialSelection':
+    case 'AddSelectedMaterial':
+    case 'SetFireDirection':
+    case 'SetFireSize':
+    case 'SetContainerAxis':
+    case 'SetFlameThrust':
+      return true
+  }
+}
+
+function invalid(state: DomainState): DomainCommandResult {
+  return { ok: false, error: 'DOMAIN_COMMAND_PAYLOAD_INVALID', state }
+}
+
+function allowed(state: DomainState): DomainCommandResult {
+  return { ok: true, state }
+}
+
+function finite(value: number): boolean {
+  return Number.isFinite(value)
+}
+
+export function addMaterialServingFromBatch(
+  state: DomainState,
+  inventoryBatchId: string,
+  rules: PrototypeRules,
+): DomainCommandResult {
+  if (!isActive(state.status)) {
+    return { ok: false, error: 'DOMAIN_COMMAND_NOT_ALLOWED', state }
+  }
+  const batch = rules.inventoryBatches.find(
+    (candidate) => candidate.batchId === inventoryBatchId,
+  )
+  if (batch === undefined || (state.inventory[batch.batchId] ?? 0) <= 0) {
+    return invalid(state)
+  }
+
+  const instance: MaterialInstance = {
+    materialInstanceId: `material-instance-${state.nextMaterialInstanceOrdinal}`,
+    materialDefinitionId: batch.materialDefinitionId,
+    inventoryBatchId: batch.batchId,
+    initialVolume: batch.volumePerServing,
+    remainingVolume: batch.volumePerServing,
+  }
+  return allowed({
+    ...state,
+    status: 'extracting',
+    inventory: {
+      ...state.inventory,
+      [batch.batchId]: (state.inventory[batch.batchId] ?? 0) - 1,
+    },
+    materialInstances: [...state.materialInstances, instance],
+    nextMaterialInstanceOrdinal: state.nextMaterialInstanceOrdinal + 1,
+  })
+}
+
+export function applyRuleCommand(
+  state: DomainState,
+  command: RuleCommand,
+  rules: PrototypeRules,
+): DomainCommandResult {
+  if (!validateRuleCommandPayload(command)) return invalid(state)
+  if (!isRuleCommandAllowed(state, command, rules)) {
+    return { ok: false, error: 'DOMAIN_COMMAND_NOT_ALLOWED', state }
+  }
+
+  switch (command.type) {
+    case 'PreselectMaterial': {
+      const batch = rules.inventoryBatches.find(
+        (candidate) => candidate.batchId === command.payload.inventoryBatchId,
+      )
+      if (batch === undefined || (state.inventory[batch.batchId] ?? 0) <= 0) return invalid(state)
+      return allowed({ ...state, selectedMaterialBatchId: batch.batchId })
+    }
+    case 'CancelMaterialSelection':
+      return allowed({ ...state, selectedMaterialBatchId: null })
+    case 'AddSelectedMaterial': {
+      if (state.selectedMaterialBatchId === null) return invalid(state)
+      return addMaterialServingFromBatch(state, state.selectedMaterialBatchId, rules)
+    }
+    case 'SelectFireSource':
+      if (!rules.availableFireSourceIds.includes(command.payload.fireSourceId)) return invalid(state)
+      return allowed({ ...state, equippedFireSourceId: command.payload.fireSourceId })
+    case 'SetSpraying':
+      return allowed({ ...state, isSpraying: command.payload.spraying })
+    case 'SetFireDirection':
+      if (!finite(command.payload.x) || !finite(command.payload.y)) return invalid(state)
+      return allowed({
+        ...state,
+        fireDirection: { x: command.payload.x, y: command.payload.y },
+      })
+    case 'SetFireSize':
+      if (
+        !finite(command.payload.size) ||
+        command.payload.size < FIRE_SIZE_MIN ||
+        command.payload.size > FIRE_SIZE_MAX
+      ) {
+        return invalid(state)
+      }
+      return allowed({ ...state, fireSize: command.payload.size })
+    case 'SetContainerAxis':
+      if (!finite(command.payload.axis) || Math.abs(command.payload.axis) > 1) return invalid(state)
+      return allowed({ ...state, containerAxis: command.payload.axis })
+    case 'SetFlameThrust':
+      return allowed({ ...state, flameThrustEnabled: command.payload.enabled })
+    case 'RequestFinish':
+      return allowed({ ...state, finishRequested: true })
+  }
+}
+
+export function stopSpraying(state: DomainState): DomainState {
+  if (!state.isSpraying) return state
+  return { ...state, isSpraying: false }
+}
+
+export function enterFailed(state: DomainState): DomainState {
+  if (state.status !== 'extracting') return state
+  return {
+    ...state,
+    status: 'failed',
+    isSpraying: false,
+    finishRequested: false,
+  }
+}
+
+export function settleRequestedCompletion(state: DomainState): DomainState {
+  if (state.status !== 'extracting' || !state.finishRequested || !deriveCanFinish(state)) return state
+  return {
+    ...state,
+    status: 'completed',
+    isSpraying: false,
+    finishRequested: false,
+  }
+}

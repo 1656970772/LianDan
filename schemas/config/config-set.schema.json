@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liandan.local/schemas/config/config-set.schema.json",
+  "title": "炼丹萃取配置集清单",
+  "type": "object",
+  "required": ["schemaVersion", "parameters", "materials"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "parameters": {
+      "type": "string",
+      "pattern": "^/config/[a-z0-9][a-z0-9/-]*\\.json$",
+      "x-owner": "config-set",
+      "x-simulation": false
+    },
+    "materials": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^/config/materials/[a-z0-9][a-z0-9-]*\\.json$"
+      },
+      "x-owner": "config-set",
+      "x-simulation": false
+    }
+  },
+  "additionalProperties": false
+}

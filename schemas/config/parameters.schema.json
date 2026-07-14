@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liandan.local/schemas/config/parameters.schema.json",
+  "title": "炼丹萃取全局参数",
+  "type": "object",
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "standardPearlVolume": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 1,
+      "x-owner": "parameters",
+      "x-displayNameZh": "标准珠体积"
+    },
+    "slagUnitVolume": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "x-defaultMultiplier": {
+        "source": "standardPearlVolume",
+        "factor": 100
+      },
+      "x-owner": "parameters",
+      "x-displayNameZh": "药渣单位体积"
+    },
+    "simulation": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "fixedStepHz": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 240,
+          "default": 30,
+          "x-owner": "parameters.simulation",
+          "x-displayNameZh": "固定模拟频率"
+        },
+        "maxCatchUpSteps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 5,
+          "x-owner": "parameters.simulation",
+          "x-displayNameZh": "单帧最大补步数"
+        }
+      },
+      "additionalProperties": false
+    },
+    "flowField": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "gridColumns": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 512,
+          "default": 80,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "流场网格列数"
+        },
+        "gridRows": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 512,
+          "default": 45,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "流场网格行数"
+        },
+        "cellSize": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 256,
+          "default": 20,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "流场网格单元尺寸"
+        },
+        "circleCoverageSamplesPerAxis": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 4,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "圆形障碍每轴覆盖采样数"
+        },
+        "lateralSpread": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.35,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "侧向扩散系数"
+        },
+        "obstacleDeflection": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.75,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "障碍偏转系数"
+        },
+        "partialObstaclePenalty": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.5,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "部分障碍通行惩罚"
+        },
+        "mergeRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.15,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "绕后汇合速率"
+        },
+        "fullObstacleThreshold": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.95,
+          "x-owner": "parameters.flowField",
+          "x-displayNameZh": "完全障碍判定阈值"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

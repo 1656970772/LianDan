@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "simulationContentFingerprint": "d3a0b6c9adbe1cedd2455611c19c09d926e6d12be72e42b16b6b6c6e50ae80bc",
+  "seed": 305419896,
+  "vectors": [
+  {
+    "name": "reset-cutover-active-batch",
+    "initialStatus": "extracting",
+    "restartConfirmation": "open",
+    "deliveryBoundaryTick": 8,
+    "firstSequence": 10,
+    "randomness": { "draws": 0, "applicability": "notApplicable" },
+    "inputs": [
+      {
+        "channel": "control",
+        "envelope": {
+          "type": "ConfirmRestart",
+          "payload": {
+            "lifecycleSnapshot": { "hasFocus": true, "visibilityState": "visible" }
+          }
+        }
+      },
+      {
+        "channel": "rule",
+        "envelope": {
+          "targetTick": 8,
+          "type": "SetFireSize",
+          "payload": { "size": 0.7 }
+        }
+      }
+    ],
+    "expectedOutcomes": ["applied", "discardedByReset"]
+  },
+  {
+    "name": "reset-cutover-terminal-first",
+    "initialStatus": "failed",
+    "restartConfirmation": "closed",
+    "deliveryBoundaryTick": 8,
+    "firstSequence": 20,
+    "randomness": { "draws": 0, "applicability": "notApplicable" },
+    "inputs": [
+      {
+        "channel": "control",
+        "envelope": {
+          "type": "Again",
+          "payload": {
+            "lifecycleSnapshot": { "hasFocus": true, "visibilityState": "visible" }
+          }
+        }
+      },
+      {
+        "channel": "rule",
+        "envelope": {
+          "targetTick": 7,
+          "type": "SetFireSize",
+          "payload": { "size": 0.4 }
+        }
+      },
+      {
+        "channel": "rule",
+        "envelope": {
+          "targetTick": 8,
+          "type": "SetFireSize",
+          "payload": { "size": 0.5 }
+        }
+      }
+    ],
+    "expectedOutcomes": ["applied", "discardedByReset", "discardedByReset"]
+  },
+  {
+    "name": "reset-cutover-terminal-prefix",
+    "initialStatus": "failed",
+    "restartConfirmation": "closed",
+    "deliveryBoundaryTick": 8,
+    "firstSequence": 19,
+    "randomness": { "draws": 0, "applicability": "notApplicable" },
+    "inputs": [
+      {
+        "channel": "rule",
+        "envelope": {
+          "targetTick": 7,
+          "type": "SetFireSize",
+          "payload": { "size": 0.3 }
+        }
+      },
+      {
+        "channel": "control",
+        "envelope": {
+          "type": "Again",
+          "payload": {
+            "lifecycleSnapshot": { "hasFocus": true, "visibilityState": "visible" }
+          }
+        }
+      },
+      {
+        "channel": "rule",
+        "envelope": {
+          "targetTick": 8,
+          "type": "SetFireSize",
+          "payload": { "size": 0.8 }
+        }
+      }
+    ],
+    "expectedOutcomes": ["APP_COMMAND_LATE", "applied", "discardedByReset"]
+  }
+  ],
+  "criticalTicks": [
+    {
+      "vectorName": "reset-cutover-active-batch",
+      "deliveryBoundaryTick": 8,
+      "state": {
+        "sessionId": "session-000002",
+        "status": "ready",
+        "nextTick": 0,
+        "queuedCommandCount": 0
+      }
+    },
+    {
+      "vectorName": "reset-cutover-terminal-first",
+      "deliveryBoundaryTick": 8,
+      "state": {
+        "sessionId": "session-000002",
+        "status": "ready",
+        "nextTick": 0,
+        "queuedCommandCount": 0
+      }
+    },
+    {
+      "vectorName": "reset-cutover-terminal-prefix",
+      "deliveryBoundaryTick": 8,
+      "state": {
+        "sessionId": "session-000002",
+        "status": "ready",
+        "nextTick": 0,
+        "queuedCommandCount": 0
+      }
+    }
+  ],
+  "final": {
+    "domainEvents": [],
+    "settlement": {
+      "status": "ready",
+      "archivedSessionCount": 1,
+      "queuedCommandCount": 0
+    }
+  }
+}

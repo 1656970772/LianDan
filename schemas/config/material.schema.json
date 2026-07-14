@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liandan.local/schemas/config/material.schema.json",
+  "title": "炼丹萃取材料",
+  "type": "object",
+  "required": ["schemaVersion", "id", "nameZh", "compositionMapPath"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 64,
+      "x-owner": "material"
+    },
+    "nameZh": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "x-owner": "material",
+      "x-simulation": false
+    },
+    "targetPearlCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000,
+      "default": 300,
+      "x-owner": "material",
+      "x-displayNameZh": "目标珠数"
+    },
+    "compositionMapPath": {
+      "type": "string",
+      "pattern": "^/assets/masks/[a-z0-9][a-z0-9-]*\\.png$",
+      "x-owner": "material",
+      "x-simulation": false
+    }
+  },
+  "additionalProperties": false
+}

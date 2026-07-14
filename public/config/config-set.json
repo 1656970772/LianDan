@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "parameters": "/config/parameters.json",
+  "materials": [
+    "/config/materials/prototype-herb.json"
+  ]
+}

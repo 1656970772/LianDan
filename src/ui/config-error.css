@@ -1,0 +1,66 @@
+.config-error {
+  width: min(100%, 48rem);
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  border: 1px solid color-mix(in srgb, #a8473b 55%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, Canvas 96%, #a8473b 4%);
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 12%);
+}
+
+.config-error__title {
+  margin: 0;
+  color: #a03b31;
+  font-size: clamp(1.75rem, 5vw, 3rem);
+  line-height: 1.1;
+}
+
+.config-error__summary {
+  margin: 0.75rem 0 0;
+  line-height: 1.6;
+}
+
+.config-error__list {
+  display: grid;
+  gap: 1rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.config-error__issue {
+  padding: 1rem;
+  border-inline-start: 0.25rem solid #a8473b;
+  background: rgb(128 128 128 / 8%);
+}
+
+.config-error__code {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.config-error__details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.4rem 0.75rem;
+  margin: 0.75rem 0 0;
+}
+
+.config-error__details dt {
+  font-weight: 650;
+}
+
+.config-error__details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 32rem) {
+  .config-error__details {
+    grid-template-columns: 1fr;
+  }
+
+  .config-error__details dd + dt {
+    margin-block-start: 0.5rem;
+  }
+}
