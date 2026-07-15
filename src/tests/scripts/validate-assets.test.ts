@@ -39,7 +39,7 @@ function createFixture(appearance: Uint8Array): string {
       id: 'unused-herb',
       nameZh: '未投入药材',
       targetPearlCount: 1,
-      compositionMapPath: '/assets/masks/prototype-herb-components.png',
+      compositionMapPath: '/assets/masks/red_whisker_ginseng-components.png',
       appearancePath: '/assets/materials/unused-herb.png',
     }),
   )
@@ -95,13 +95,30 @@ describe('validate-assets 全登记外观素材门禁', () => {
     ],
   ] as const)('拒绝未被 M2 库存引用的%s', async (_case, appearance, code) => {
     const root = createFixture(appearance)
+    const fieldPath =
+      code === 'CONFIG_ASSET_EMPTY'
+        ? '/pixels'
+        : code === 'CONFIG_ASSET_INVALID_COLOR'
+          ? '/pixels/0/0'
+          : ''
 
     const runtimeLoad = await loadAndValidatePublicM2GameplayConfig(root)
-    expect(runtimeLoad.ok).toBe(true)
+    expect(runtimeLoad).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          code,
+          filePath: '/assets/materials/unused-herb.png',
+          fieldPath,
+        }),
+      ],
+    })
 
     const gate = runGate(root)
     expect(gate.status).toBe(1)
     expect(`${gate.stdout}\n${gate.stderr}`).toContain(code)
-    expect(`${gate.stdout}\n${gate.stderr}`).toContain('/assets/materials/unused-herb.png')
+    expect(`${gate.stdout}\n${gate.stderr}`).toContain(
+      `/assets/materials/unused-herb.png${fieldPath}`,
+    )
   })
 })

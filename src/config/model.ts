@@ -43,9 +43,21 @@ export type NormalizedTagDefinition = Readonly<{
 export type NormalizedTagCatalog = Readonly<{
   definitions: readonly NormalizedTagDefinition[]
   stateDerivation: Readonly<{
-    preservationStates: readonly Readonly<{ stateId: string; tagId: string }>[]
-    growthSources: readonly Readonly<{ stateId: string; tagId: string }>[]
-    ages: readonly Readonly<{ ageYears: number; tagId: string }>[]
+    preservationStates: readonly Readonly<{
+      stateId: string
+      tagId: string
+      strength: number
+    }>[]
+    growthSources: readonly Readonly<{
+      stateId: string
+      tagId: string
+      strength: number
+    }>[]
+    ages: readonly Readonly<{
+      ageYears: number
+      tagId: string
+      strength: number
+    }>[]
   }>
 }>
 

@@ -319,6 +319,97 @@ describe('loadBrowserM2GameplayConfig', () => {
     })
   })
 
+  it('将已登记材料外观图的网络加载异常报告为素材不存在', async () => {
+    const baseOptions = options()
+    const result = await loadBrowserM2GameplayConfig({
+      ...baseOptions,
+      fetch: async (input) => {
+        if (String(input) === '/assets/materials/moon-leaf.png') {
+          throw new TypeError('Failed to fetch')
+        }
+        return baseOptions.fetch!(input)
+      },
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          code: 'CONFIG_ASSET_NOT_FOUND',
+          filePath: '/assets/materials/moon-leaf.png',
+          fieldPath: '',
+        }),
+      ],
+    })
+  })
+
+  it.each([
+    [
+      '无法解码',
+      Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      'CONFIG_ASSET_INVALID_PNG',
+      '',
+    ],
+    [
+      '全透明',
+      (() => {
+        const png = new PNG({ width: 512, height: 512 })
+        png.data.fill(0)
+        return PNG.sync.write(png, { colorType: 6, inputColorType: 6 })
+      })(),
+      'CONFIG_ASSET_EMPTY',
+      '/pixels',
+    ],
+    [
+      '轮廓错位',
+      (() => {
+        const png = PNG.sync.read(Buffer.from(validAppearancePng()))
+        png.data.set([64, 128, 72, 255], 8 * 4)
+        return PNG.sync.write(png, { colorType: 6, inputColorType: 6 })
+      })(),
+      'CONFIG_ASSET_INVALID_COLOR',
+      '/pixels/0/8',
+    ],
+  ] as const)(
+    '拒绝已登记但未被库存引用的%s外观图',
+    async (_case, invalidAppearance, code, fieldPath) => {
+      const manifest = structuredClone(
+        documents()['/config/config-set.json'],
+      ) as { materials: string[] }
+      manifest.materials.push('/config/materials/unused-herb.json')
+      const baseOptions = options({
+        '/config/config-set.json': manifest,
+        '/config/materials/unused-herb.json': {
+          schemaVersion: 1,
+          id: 'unused-herb',
+          nameZh: '未投入药材',
+          targetPearlCount: 1,
+          compositionMapPath: '/assets/masks/moon-leaf-components.png',
+          appearancePath: '/assets/materials/unused-herb.png',
+        },
+      })
+
+      const result = await loadBrowserM2GameplayConfig({
+        ...baseOptions,
+        fetch: async (input) =>
+          String(input) === '/assets/materials/unused-herb.png'
+            ? new Response(Uint8Array.from(invalidAppearance).buffer)
+            : baseOptions.fetch!(input),
+      })
+
+      expect(result).toMatchObject({
+        ok: false,
+        issues: [
+          expect.objectContaining({
+            code,
+            filePath: '/assets/materials/unused-herb.png',
+            fieldPath,
+          }),
+        ],
+      })
+    },
+  )
+
   it('加载器返回的 typed array 只是隔离副本，外部写入不会改写权威素材', async () => {
     const result = await loadBrowserM2GameplayConfig(options())
     expect(result.ok).toBe(true)

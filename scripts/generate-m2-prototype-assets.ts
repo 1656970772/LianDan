@@ -4,8 +4,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname } from 'node:path'
 
 import { PNG } from 'pngjs'
 
@@ -204,27 +203,4 @@ export function generateM2PrototypeAssets(
     ),
     appearanceChanged: writeIfChanged(options.appearancePath, encode(appearance)),
   }
-}
-
-function isDirectExecution(): boolean {
-  const entryPath = process.argv[1]
-  return (
-    entryPath !== undefined &&
-    import.meta.url === pathToFileURL(resolve(entryPath)).href
-  )
-}
-
-if (isDirectExecution()) {
-  const projectRoot = process.cwd()
-  const result = generateM2PrototypeAssets({
-    compositionPath: resolve(
-      projectRoot,
-      'public/assets/masks/prototype-herb-components.png',
-    ),
-    appearancePath: resolve(
-      projectRoot,
-      'public/assets/materials/prototype-herb.png',
-    ),
-  })
-  process.stdout.write(`${JSON.stringify(result)}\n`)
 }

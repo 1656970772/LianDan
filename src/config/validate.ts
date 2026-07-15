@@ -117,6 +117,12 @@ function rangeMessage(fieldPath: string): string | undefined {
   if (fieldPath === '/standardPearlVolume') return '标准珠体积必须是有限正数'
   if (fieldPath === '/slagUnitVolume') return '药渣单位体积必须是有限正数'
   if (fieldPath === '/targetPearlCount') return '目标珠数必须是 1..100000 的整数'
+  if (
+    fieldPath.startsWith('/stateDerivation/') &&
+    fieldPath.endsWith('/strength')
+  ) {
+    return '状态派生标签强度必须在 0..100 之间'
+  }
   if (fieldPath === '/simulation/fixedStepHz') return '固定模拟频率必须是 1..240 的整数'
   if (fieldPath === '/simulation/maxCatchUpSteps') return '单帧最大补步数必须是 1..60 的整数'
   if (fieldPath === '/flowField/gridColumns') return '流场网格列数必须是 8..512 的整数'
@@ -409,7 +415,12 @@ function tagSemanticIssues(raw: RawConfigSet): ConfigIssue[] {
   })
 
   const validateStateRules = (
-    rules: readonly Readonly<{ stateId?: string; ageYears?: number; tagId: string }>[],
+    rules: readonly Readonly<{
+      stateId?: string
+      ageYears?: number
+      tagId: string
+      strength: number
+    }>[],
     path: string,
     stableKey: (rule: Readonly<{ stateId?: string; ageYears?: number }>) => string,
   ) => {

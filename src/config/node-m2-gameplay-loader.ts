@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { PNG } from 'pngjs'
 
 import {
+  selectM2AppearanceValidationTargets,
   validateAppearancePngHeader,
   validateM2AppearanceMap,
 } from './assets'
@@ -154,71 +155,55 @@ export async function loadAndValidatePublicM2GameplayConfig(
   )
   if (!gameplayResult.ok) return gameplayResult
 
-  const compositionByPath = new Map(
-    baseResult.compositionMaps.map((map) => [map.filePath, map] as const),
-  )
-  const materialsById = new Map(
-    baseResult.config.materials.map((material) => [material.id, material] as const),
-  )
-  const appearanceIssues: ConfigIssue[] = []
-  const requiredMaterialIds = new Set(
+  const appearanceSelection = selectM2AppearanceValidationTargets(
+    baseResult.config.materials,
+    baseResult.compositionMaps,
     gameplayResult.config.prototype.inventoryBatches.map(
       (batch) => batch.materialDefinitionId,
     ),
+    raw.prototype.filePath,
   )
-  for (const materialId of requiredMaterialIds) {
-    const material = materialsById.get(materialId)!
-    if (material.appearancePath === undefined) {
-      appearanceIssues.push(
-        configIssue(
-          'CONFIG_REQUIRED_FIELD',
-          raw.prototype.filePath,
-          '/inventoryBatches',
-          `M2 库存材料 ${materialId} 必须登记 512×512 外观图`,
-        ),
-      )
-      continue
-    }
+  const appearanceIssues: ConfigIssue[] = [...appearanceSelection.issues]
+  for (const target of appearanceSelection.targets) {
     let bytes: Uint8Array
     try {
       bytes = new Uint8Array(
-        readFileSync(resolvePublicUrl(projectRoot, material.appearancePath)),
+        readFileSync(resolvePublicUrl(projectRoot, target.appearancePath)),
       )
     } catch {
       appearanceIssues.push(
         configIssue(
           'CONFIG_ASSET_NOT_FOUND',
-          material.appearancePath,
+          target.appearancePath,
           '',
           '已登记的材料外观图文件不存在',
         ),
       )
       continue
     }
-    const headerIssues = validateAppearancePngHeader(material.appearancePath, bytes)
+    const headerIssues = validateAppearancePngHeader(target.appearancePath, bytes)
     if (headerIssues.length > 0) {
       appearanceIssues.push(...headerIssues)
       continue
     }
     try {
       const decoded = PNG.sync.read(Buffer.from(bytes))
-      const composition = compositionByPath.get(material.compositionMapPath)!
       appearanceIssues.push(
         ...validateM2AppearanceMap(
           {
-            filePath: material.appearancePath,
+            filePath: target.appearancePath,
             width: decoded.width,
             height: decoded.height,
             rgba: Uint8Array.from(decoded.data),
           },
-          composition,
+          target.composition,
         ),
       )
     } catch {
       appearanceIssues.push(
         configIssue(
           'CONFIG_ASSET_INVALID_PNG',
-          material.appearancePath,
+          target.appearancePath,
           '',
           '已登记的材料外观图 PNG 解码失败',
         ),
