@@ -26,6 +26,11 @@ export {
 export { createSimulationFingerprintInput } from './fingerprint-input'
 export { createM2SimulationFingerprintInput } from './m2-fingerprint-input'
 export {
+  deriveBatchTags,
+  type DerivedBatchTagsResult,
+  type MaterialBatchState,
+} from './tag-derivation'
+export {
   validateM1FireFlowFixtureSemantics,
   type M1FireFlowFixture,
   type M1FireFlowFixtureIssue,
@@ -42,6 +47,8 @@ export type {
   NormalizedM2Collector,
   NormalizedM2Config,
   NormalizedM2FireSource,
+  NormalizedM2Interaction,
+  NormalizedM2InteractionSelector,
   NormalizedM2GameplayConfig,
   NormalizedM2PearlType,
   NormalizedM2Prototype,
@@ -54,6 +61,11 @@ export type {
   NormalizedConfig,
   NormalizedMaterial,
   NormalizedParameters,
+  NormalizedTagCatalog,
+  NormalizedTagDefinition,
+  NormalizedTagStrength,
+  MaterialTagCategory,
+  IntrinsicMaterialTagCategory,
 } from './model'
 export {
   validateAndNormalizeConfigSet,

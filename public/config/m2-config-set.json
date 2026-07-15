@@ -4,5 +4,6 @@
   "prototype": "/config/m2/prototype.json",
   "fireSources": "/config/m2/fire-sources.json",
   "pearlTypes": "/config/m2/pearl-types.json",
-  "collector": "/config/m2/collector.json"
+  "collector": "/config/m2/collector.json",
+  "interactions": "/config/m2/interactions.json"
 }

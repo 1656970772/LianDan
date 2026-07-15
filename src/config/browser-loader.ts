@@ -51,6 +51,7 @@ export interface BrowserConfigLoaderOptions {
 
 interface ManifestShape {
   readonly parameters: string
+  readonly tags?: string
   readonly materials: string[]
 }
 
@@ -178,6 +179,9 @@ export async function loadBrowserConfigWithAssets(
 
     const documentLoads = await Promise.all([
       fetchJsonDocument(fetcher, manifest.parameters),
+      ...(manifest.tags === undefined
+        ? []
+        : [fetchJsonDocument(fetcher, manifest.tags)]),
       ...manifest.materials.map((filePath) => fetchJsonDocument(fetcher, filePath)),
     ])
     const loadIssues = documentLoads.flatMap((result) =>
@@ -188,10 +192,12 @@ export async function loadBrowserConfigWithAssets(
       if (!result.ok) throw new Error('unreachable')
       return result.document
     })
+    const materialOffset = manifest.tags === undefined ? 1 : 2
     const raw: RawConfigSet = {
       configSet: manifestLoad.document,
       parameters: documents[0]!,
-      materials: documents.slice(1),
+      ...(manifest.tags === undefined ? {} : { tags: documents[1]! }),
+      materials: documents.slice(materialOffset),
     }
     const validated = validateAndNormalizeConfigSet(raw, browserConfigSchemaBundle)
     if (!validated.ok) return validated

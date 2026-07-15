@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liandan.local/schemas/config/tags.schema.json",
+  "title": "炼丹材料标签词表与状态派生规则",
+  "type": "object",
+  "required": ["schemaVersion", "tags", "stateDerivation"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2048,
+      "items": {
+        "type": "object",
+        "required": ["id", "nameZh", "category", "descriptionZh"],
+        "properties": {
+          "id": { "$ref": "#/$defs/stableId" },
+          "nameZh": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "category": {
+            "enum": [
+              "medicinalProperty",
+              "efficacyClue",
+              "reactionTrait",
+              "risk",
+              "state"
+            ]
+          },
+          "descriptionZh": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "stateDerivation": {
+      "type": "object",
+      "required": ["preservationStates", "growthSources", "ages"],
+      "properties": {
+        "preservationStates": { "$ref": "#/$defs/stateRules" },
+        "growthSources": { "$ref": "#/$defs/stateRules" },
+        "ages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "required": ["ageYears", "tagId"],
+            "properties": {
+              "ageYears": { "type": "integer", "minimum": 1, "maximum": 100000 },
+              "tagId": { "$ref": "#/$defs/stableId" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "stateRules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "required": ["stateId", "tagId"],
+        "properties": {
+          "stateId": { "$ref": "#/$defs/stableId" },
+          "tagId": { "$ref": "#/$defs/stableId" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

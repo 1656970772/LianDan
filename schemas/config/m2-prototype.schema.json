@@ -105,7 +105,10 @@
         "properties": {
           "batchId": { "$ref": "#/$defs/stableId" },
           "materialDefinitionId": { "$ref": "#/$defs/stableId" },
-          "servings": { "type": "integer", "minimum": 1, "maximum": 100000 }
+          "servings": { "type": "integer", "minimum": 1, "maximum": 100000 },
+          "preservationStateId": { "$ref": "#/$defs/stableId" },
+          "growthSourceId": { "$ref": "#/$defs/stableId" },
+          "ageYears": { "type": "integer", "minimum": 1, "maximum": 100000 }
         },
         "additionalProperties": false
       }
@@ -114,7 +117,7 @@
   "$defs": {
     "stableId": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$",
       "minLength": 1,
       "maxLength": 64
     },

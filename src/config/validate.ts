@@ -6,9 +6,12 @@ import Ajv2020, {
 import { configIssue, type ConfigIssue } from './errors'
 import type {
   ConfigSchemaBundle,
+  IntrinsicMaterialTagCategory,
   JsonSchema,
   NormalizedConfig,
   NormalizedMaterial,
+  NormalizedTagCatalog,
+  NormalizedTagStrength,
   RawConfigDocument,
   RawConfigSet,
 } from './model'
@@ -30,11 +33,13 @@ interface CompiledSchemas {
   readonly configSet: ValidateFunction
   readonly parameters: ValidateFunction
   readonly material: ValidateFunction
+  readonly tags: ValidateFunction
 }
 
 interface RawManifest {
   readonly schemaVersion: 1
   readonly parameters: string
+  readonly tags?: string
   readonly materials: string[]
 }
 
@@ -73,8 +78,18 @@ interface RawMaterial {
   readonly id: string
   readonly nameZh: string
   readonly appearancePath?: string
+  readonly pearlColor?: string
   readonly targetPearlCount?: number
   readonly compositionMapPath: string
+  readonly intrinsicTags?: Readonly<
+    Record<IntrinsicMaterialTagCategory, readonly NormalizedTagStrength[]>
+  >
+}
+
+interface RawTags {
+  readonly schemaVersion: 1
+  readonly tags: NormalizedTagCatalog['definitions']
+  readonly stateDerivation: NormalizedTagCatalog['stateDerivation']
 }
 
 function compileSchemas(schemas: ConfigSchemaBundle): CompiledSchemas {
@@ -89,6 +104,7 @@ function compileSchemas(schemas: ConfigSchemaBundle): CompiledSchemas {
     configSet: ajv.compile(schemas.configSet),
     parameters: ajv.compile(schemas.parameters),
     material: ajv.compile(schemas.material),
+    tags: ajv.compile(schemas.tags),
   }
 }
 
@@ -299,6 +315,26 @@ function referenceIssues(raw: RawConfigSet): ConfigIssue[] {
     )
   }
 
+  if (manifest.tags !== undefined && manifest.tags !== raw.tags?.filePath) {
+    issues.push(
+      configIssue(
+        'CONFIG_REFERENCE_NOT_FOUND',
+        raw.configSet.filePath,
+        '/tags',
+        `找不到已登记的标签配置 ${manifest.tags}`,
+      ),
+    )
+  } else if (manifest.tags === undefined && raw.tags !== undefined) {
+    issues.push(
+      configIssue(
+        'CONFIG_UNREGISTERED_DOCUMENT',
+        raw.tags.filePath,
+        '',
+        '标签配置未在 config-set.json 中登记',
+      ),
+    )
+  }
+
   const materialsByPath = new Map(raw.materials.map((document) => [document.filePath, document]))
   const registeredPaths = new Set(manifest.materials)
   manifest.materials.forEach((filePath, index) => {
@@ -341,6 +377,133 @@ function referenceIssues(raw: RawConfigSet): ConfigIssue[] {
       )
     } else {
       firstPathById.set(material.id, document.filePath)
+    }
+  })
+  return issues
+}
+
+const INTRINSIC_TAG_CATEGORIES = [
+  'medicinalProperty',
+  'efficacyClue',
+  'reactionTrait',
+  'risk',
+] as const
+
+function tagSemanticIssues(raw: RawConfigSet): ConfigIssue[] {
+  const issues: ConfigIssue[] = []
+  const rawTags = raw.tags?.value as RawTags | undefined
+  const definitionById = new Map<string, RawTags['tags'][number]>()
+  rawTags?.tags.forEach((definition, index) => {
+    if (definitionById.has(definition.id)) {
+      issues.push(
+        configIssue(
+          'CONFIG_DUPLICATE_LOGICAL_KEY',
+          raw.tags!.filePath,
+          `/tags/${index}/id`,
+          `标签稳定 ID ${definition.id} 重复`,
+        ),
+      )
+    } else {
+      definitionById.set(definition.id, definition)
+    }
+  })
+
+  const validateStateRules = (
+    rules: readonly Readonly<{ stateId?: string; ageYears?: number; tagId: string }>[],
+    path: string,
+    stableKey: (rule: Readonly<{ stateId?: string; ageYears?: number }>) => string,
+  ) => {
+    const seenKeys = new Set<string>()
+    rules.forEach((rule, index) => {
+      const key = stableKey(rule)
+      if (seenKeys.has(key)) {
+        issues.push(
+          configIssue(
+            'CONFIG_DUPLICATE_LOGICAL_KEY',
+            raw.tags!.filePath,
+            `${path}/${index}`,
+            `状态派生规则键 ${key} 重复`,
+          ),
+        )
+      }
+      seenKeys.add(key)
+      const definition = definitionById.get(rule.tagId)
+      if (definition === undefined) {
+        issues.push(
+          configIssue(
+            'CONFIG_REFERENCE_NOT_FOUND',
+            raw.tags!.filePath,
+            `${path}/${index}/tagId`,
+            `找不到状态标签稳定 ID ${rule.tagId}`,
+          ),
+        )
+      } else if (definition.category !== 'state') {
+        issues.push(
+          configIssue(
+            'CONFIG_SCHEMA_VIOLATION',
+            raw.tags!.filePath,
+            `${path}/${index}/tagId`,
+            `状态派生规则只能引用 state 类标签，实际为 ${definition.category}`,
+          ),
+        )
+      }
+    })
+  }
+  if (rawTags !== undefined) {
+    validateStateRules(
+      rawTags.stateDerivation.preservationStates,
+      '/stateDerivation/preservationStates',
+      (rule) => rule.stateId!,
+    )
+    validateStateRules(
+      rawTags.stateDerivation.growthSources,
+      '/stateDerivation/growthSources',
+      (rule) => rule.stateId!,
+    )
+    validateStateRules(
+      rawTags.stateDerivation.ages,
+      '/stateDerivation/ages',
+      (rule) => String(rule.ageYears),
+    )
+  }
+
+  raw.materials.forEach((document) => {
+    const material = document.value as RawMaterial
+    for (const category of INTRINSIC_TAG_CATEGORIES) {
+      const seenTagIds = new Set<string>()
+      ;(material.intrinsicTags?.[category] ?? []).forEach((tag, index) => {
+        if (seenTagIds.has(tag.tagId)) {
+          issues.push(
+            configIssue(
+              'CONFIG_DUPLICATE_LOGICAL_KEY',
+              document.filePath,
+              `/intrinsicTags/${category}/${index}/tagId`,
+              `材料标签稳定 ID ${tag.tagId} 重复`,
+            ),
+          )
+        }
+        seenTagIds.add(tag.tagId)
+        const definition = definitionById.get(tag.tagId)
+        if (definition === undefined) {
+          issues.push(
+            configIssue(
+              'CONFIG_REFERENCE_NOT_FOUND',
+              document.filePath,
+              `/intrinsicTags/${category}/${index}/tagId`,
+              `找不到标签稳定 ID ${tag.tagId}`,
+            ),
+          )
+        } else if (definition.category !== category) {
+          issues.push(
+            configIssue(
+              'CONFIG_SCHEMA_VIOLATION',
+              document.filePath,
+              `/intrinsicTags/${category}/${index}/tagId`,
+              `材料 ${category} 标签不能引用 ${definition.category} 类标签`,
+            ),
+          )
+        }
+      })
     }
   })
   return issues
@@ -438,12 +601,50 @@ function normalize(raw: RawConfigSet, schemas: ConfigSchemaBundle): NormalizedCo
       ...(material.appearancePath === undefined
         ? {}
         : { appearancePath: material.appearancePath }),
+      ...(material.pearlColor === undefined
+        ? {}
+        : { pearlColor: material.pearlColor }),
       targetPearlCount:
         material.targetPearlCount ??
         staticNumberDefault(schemas.material, 'targetPearlCount'),
       compositionMapPath: material.compositionMapPath,
+      intrinsicTags: {
+        medicinalProperty: (material.intrinsicTags?.medicinalProperty ?? []).map(
+          (tag) => ({ ...tag }),
+        ),
+        efficacyClue: (material.intrinsicTags?.efficacyClue ?? []).map((tag) => ({
+          ...tag,
+        })),
+        reactionTrait: (material.intrinsicTags?.reactionTrait ?? []).map(
+          (tag) => ({ ...tag }),
+        ),
+        risk: (material.intrinsicTags?.risk ?? []).map((tag) => ({ ...tag })),
+      },
     }
   })
+  const rawTags = raw.tags?.value as RawTags | undefined
+  const tags: NormalizedTagCatalog =
+    rawTags === undefined
+      ? {
+          definitions: [],
+          stateDerivation: {
+            preservationStates: [],
+            growthSources: [],
+            ages: [],
+          },
+        }
+      : {
+          definitions: rawTags.tags.map((tag) => ({ ...tag })),
+          stateDerivation: {
+            preservationStates: rawTags.stateDerivation.preservationStates.map(
+              (rule) => ({ ...rule }),
+            ),
+            growthSources: rawTags.stateDerivation.growthSources.map((rule) => ({
+              ...rule,
+            })),
+            ages: rawTags.stateDerivation.ages.map((rule) => ({ ...rule })),
+          },
+        }
 
   return deepFreeze({
     schemaVersion: 1,
@@ -455,6 +656,7 @@ function normalize(raw: RawConfigSet, schemas: ConfigSchemaBundle): NormalizedCo
       dissolution,
       loss,
     },
+    tags,
     materials,
   })
 }
@@ -470,10 +672,11 @@ export function validateAndNormalizeConfigSet(
     ...raw.materials.flatMap((document) =>
       validateDocument(document, compiled.material),
     ),
+    ...(raw.tags === undefined ? [] : validateDocument(raw.tags, compiled.tags)),
   ]
   if (schemaIssues.length > 0) return { ok: false, issues: schemaIssues }
 
-  const semanticIssues = referenceIssues(raw)
+  const semanticIssues = [...referenceIssues(raw), ...tagSemanticIssues(raw)]
   if (semanticIssues.length > 0) return { ok: false, issues: semanticIssues }
 
   const config = normalize(raw, schemas)

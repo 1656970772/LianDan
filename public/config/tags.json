@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "tags": [
+    { "id": "warm_fierce", "nameZh": "温烈", "category": "medicinalProperty", "descriptionZh": "药性温热而强劲。" },
+    { "id": "cool_clear", "nameZh": "清凉", "category": "medicinalProperty", "descriptionZh": "药性清润而偏凉。" },
+    { "id": "balanced", "nameZh": "平和", "category": "medicinalProperty", "descriptionZh": "药性平稳，不偏寒热。" },
+    { "id": "sweet_warm", "nameZh": "甘温", "category": "medicinalProperty", "descriptionZh": "甘润温和，利于固护。" },
+    { "id": "damp_yin", "nameZh": "阴湿", "category": "medicinalProperty", "descriptionZh": "药性阴湿，易积聚浊气。" },
+    { "id": "supple", "nameZh": "柔韧", "category": "medicinalProperty", "descriptionZh": "药性绵长而有韧性。" },
+    { "id": "extreme_cold", "nameZh": "极寒", "category": "medicinalProperty", "descriptionZh": "药性极寒，能强力镇热。" },
+    { "id": "warm_moist", "nameZh": "温润", "category": "medicinalProperty", "descriptionZh": "药性温和润泽。" },
+
+    { "id": "tonify", "nameZh": "补益", "category": "efficacyClue", "descriptionZh": "可能参与形成补益类功效。" },
+    { "id": "clear_heart", "nameZh": "清心", "category": "efficacyClue", "descriptionZh": "可能参与形成清心类功效。" },
+    { "id": "calm_spirit", "nameZh": "宁神", "category": "efficacyClue", "descriptionZh": "可能参与形成宁神类功效。" },
+    { "id": "stabilize_origin", "nameZh": "固元", "category": "efficacyClue", "descriptionZh": "可能参与形成固元类功效。" },
+    { "id": "lure_beast", "nameZh": "引兽", "category": "efficacyClue", "descriptionZh": "气味可能吸引灵兽。" },
+    { "id": "unblock_channels", "nameZh": "活络", "category": "efficacyClue", "descriptionZh": "可能参与形成活络类功效。" },
+    { "id": "suppress_heat", "nameZh": "镇热", "category": "efficacyClue", "descriptionZh": "可能压制过强热性。" },
+    { "id": "settle_spirit", "nameZh": "安神", "category": "efficacyClue", "descriptionZh": "可能参与形成安神类功效。" },
+
+    { "id": "active", "nameZh": "活性", "category": "reactionTrait", "descriptionZh": "入炉后反应活跃。" },
+    { "id": "dispersive", "nameZh": "易散", "category": "reactionTrait", "descriptionZh": "成分容易向外逸散。" },
+    { "id": "volatile", "nameZh": "易挥发", "category": "reactionTrait", "descriptionZh": "久炼或猛火下容易挥发。" },
+    { "id": "tough", "nameZh": "坚韧", "category": "reactionTrait", "descriptionZh": "结构坚实，较难烧穿。" },
+    { "id": "spore_scatter", "nameZh": "孢散", "category": "reactionTrait", "descriptionZh": "受热时孢子容易扩散。" },
+    { "id": "adhesive", "nameZh": "黏连", "category": "reactionTrait", "descriptionZh": "成分容易彼此黏连。" },
+    { "id": "stagnant", "nameZh": "凝滞", "category": "reactionTrait", "descriptionZh": "反应缓慢并容易凝结。" },
+    { "id": "settling", "nameZh": "沉降", "category": "reactionTrait", "descriptionZh": "成分具有明显沉降倾向。" },
+
+    { "id": "scorch_meridians", "nameZh": "灼脉", "category": "risk", "descriptionZh": "过量可能灼伤经脉。" },
+    { "id": "cold_stagnation", "nameZh": "寒滞", "category": "risk", "descriptionZh": "过量可能造成寒滞。" },
+    { "id": "delusion", "nameZh": "幻惑", "category": "risk", "descriptionZh": "处理不当可能扰乱神识。" },
+    { "id": "qi_stagnation", "nameZh": "滞气", "category": "risk", "descriptionZh": "使用不当可能阻滞气机。" },
+    { "id": "rot_poison", "nameZh": "腐毒", "category": "risk", "descriptionZh": "腐败成分可能形成毒性。" },
+    { "id": "breath_bind", "nameZh": "缠息", "category": "risk", "descriptionZh": "黏连药气可能缠阻呼吸。" },
+    { "id": "cold_poison", "nameZh": "寒毒", "category": "risk", "descriptionZh": "极寒药性可能积累寒毒。" },
+    { "id": "smoke_poison", "nameZh": "烟毒", "category": "risk", "descriptionZh": "受热烟气可能携带毒性。" },
+
+    { "id": "fresh", "nameZh": "新鲜", "category": "state", "descriptionZh": "保存良好且药性鲜活。" },
+    { "id": "dried", "nameZh": "干燥", "category": "state", "descriptionZh": "经过干燥保存。" },
+    { "id": "rotten", "nameZh": "腐败", "category": "state", "descriptionZh": "已发生明显腐败。" },
+    { "id": "frozen", "nameZh": "冰封", "category": "state", "descriptionZh": "处于冰封保存状态。" },
+    { "id": "wild", "nameZh": "野生", "category": "state", "descriptionZh": "自然野生生长。" },
+    { "id": "cultivated", "nameZh": "种植", "category": "state", "descriptionZh": "人工稳定种植。" },
+    { "id": "mutated", "nameZh": "变异", "category": "state", "descriptionZh": "生长过程发生变异。" },
+    { "id": "age_2", "nameZh": "二年", "category": "state", "descriptionZh": "生长年份为二年。" },
+    { "id": "age_3", "nameZh": "三年", "category": "state", "descriptionZh": "生长年份为三年。" },
+    { "id": "age_5", "nameZh": "五年", "category": "state", "descriptionZh": "生长年份为五年。" },
+    { "id": "age_8", "nameZh": "八年", "category": "state", "descriptionZh": "生长年份为八年。" },
+    { "id": "age_10", "nameZh": "十年", "category": "state", "descriptionZh": "生长年份为十年。" },
+    { "id": "age_20", "nameZh": "二十年", "category": "state", "descriptionZh": "生长年份为二十年。" },
+    { "id": "age_50", "nameZh": "五十年", "category": "state", "descriptionZh": "生长年份为五十年。" },
+    { "id": "age_100", "nameZh": "百年", "category": "state", "descriptionZh": "生长年份为百年。" }
+  ],
+  "stateDerivation": {
+    "preservationStates": [
+      { "stateId": "fresh", "tagId": "fresh" },
+      { "stateId": "dried", "tagId": "dried" },
+      { "stateId": "rotten", "tagId": "rotten" },
+      { "stateId": "frozen", "tagId": "frozen" }
+    ],
+    "growthSources": [
+      { "stateId": "wild", "tagId": "wild" },
+      { "stateId": "cultivated", "tagId": "cultivated" },
+      { "stateId": "mutated", "tagId": "mutated" }
+    ],
+    "ages": [
+      { "ageYears": 2, "tagId": "age_2" },
+      { "ageYears": 3, "tagId": "age_3" },
+      { "ageYears": 5, "tagId": "age_5" },
+      { "ageYears": 8, "tagId": "age_8" },
+      { "ageYears": 10, "tagId": "age_10" },
+      { "ageYears": 20, "tagId": "age_20" },
+      { "ageYears": 50, "tagId": "age_50" },
+      { "ageYears": 100, "tagId": "age_100" }
+    ]
+  }
+}

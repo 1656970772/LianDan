@@ -15,6 +15,7 @@ export function loadM2GameplayTestSchemaBundle(): M2GameplaySchemaBundle {
     fireSources: readSchema('m2-fire-sources.schema.json'),
     pearlTypes: readSchema('m2-pearl-types.schema.json'),
     collector: readSchema('m2-collector.schema.json'),
+    interactions: readSchema('m2-interactions.schema.json'),
   }
 }
 
@@ -23,5 +24,6 @@ export function loadTestSchemaBundle(): ConfigSchemaBundle {
     configSet: readSchema('config-set.schema.json'),
     parameters: readSchema('parameters.schema.json'),
     material: readSchema('material.schema.json'),
+    tags: readSchema('tags.schema.json'),
   }
 }

@@ -6,6 +6,7 @@ export interface M2GameplaySchemaBundle {
   readonly fireSources: JsonSchema
   readonly pearlTypes: JsonSchema
   readonly collector: JsonSchema
+  readonly interactions: JsonSchema
 }
 
 export interface RawM2GameplayConfig {
@@ -14,6 +15,7 @@ export interface RawM2GameplayConfig {
   readonly fireSources: RawConfigDocument
   readonly pearlTypes: RawConfigDocument
   readonly collector: RawConfigDocument
+  readonly interactions?: RawConfigDocument
 }
 
 export type M2Vector = Readonly<{ x: number; y: number }>
@@ -53,8 +55,30 @@ export interface NormalizedM2Prototype {
     batchId: string
     materialDefinitionId: string
     servings: number
+    preservationStateId?: string
+    growthSourceId?: string
+    ageYears?: number
+    tags?: readonly Readonly<{ tagId: string; strength: number }>[]
   }>[]
 }
+
+export type NormalizedM2InteractionSelector = Readonly<{
+  materialDefinitionIds: readonly string[]
+  requiredTagIds: readonly string[]
+  pearlTypes: readonly ('medicinalLiquid' | 'slag' | 'impurity')[]
+}>
+
+export type NormalizedM2Interaction = Readonly<{
+  id: string
+  nameZh?: string
+  behavior: 'fight'
+  participantA: NormalizedM2InteractionSelector
+  participantB: NormalizedM2InteractionSelector
+  distance: number
+  durationSeconds: number
+  impulse: number
+  cooldownSeconds: number
+}>
 
 export interface NormalizedM2FireSource {
   readonly id: string
@@ -106,6 +130,7 @@ export interface NormalizedM2GameplayConfig {
   readonly fireSources: readonly NormalizedM2FireSource[]
   readonly pearlTypes: readonly NormalizedM2PearlType[]
   readonly collector: NormalizedM2Collector
+  readonly interactions?: readonly NormalizedM2Interaction[]
 }
 
 export interface NormalizedM2Config {

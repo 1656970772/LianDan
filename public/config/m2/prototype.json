@@ -5,13 +5,13 @@
   "logicalHeight": 900,
   "materialPlacement": {
     "centerX": 600,
-    "centerY": 300,
-    "size": 180,
+    "centerY": 285,
+    "size": 160,
     "offsetPerInstance": {
-      "x": 120,
-      "y": 0
+      "x": 12,
+      "y": 3
     },
-    "rotationDegreesPerInstance": 2
+    "rotationDegreesPerInstance": 7
   },
   "availableFireSourceIds": [
     "basic-fire"
@@ -38,9 +38,68 @@
   },
   "inventoryBatches": [
     {
-      "batchId": "prototype-herb-batch",
-      "materialDefinitionId": "prototype-herb",
-      "servings": 3
+      "batchId": "red_whisker_ginseng_fresh_wild_10",
+      "materialDefinitionId": "red_whisker_ginseng",
+      "servings": 3,
+      "preservationStateId": "fresh",
+      "growthSourceId": "wild",
+      "ageYears": 10
+    },
+    {
+      "batchId": "azure_dew_leaf_fresh_cultivated_3",
+      "materialDefinitionId": "azure_dew_leaf",
+      "servings": 3,
+      "preservationStateId": "fresh",
+      "growthSourceId": "cultivated",
+      "ageYears": 3
+    },
+    {
+      "batchId": "violet_star_flower_dried_wild_5",
+      "materialDefinitionId": "violet_star_flower",
+      "servings": 3,
+      "preservationStateId": "dried",
+      "growthSourceId": "wild",
+      "ageYears": 5
+    },
+    {
+      "batchId": "golden_bell_fruit_fresh_cultivated_8",
+      "materialDefinitionId": "golden_bell_fruit",
+      "servings": 3,
+      "preservationStateId": "fresh",
+      "growthSourceId": "cultivated",
+      "ageYears": 8
+    },
+    {
+      "batchId": "ash_spore_mushroom_rotten_mutated_2",
+      "materialDefinitionId": "ash_spore_mushroom",
+      "servings": 3,
+      "preservationStateId": "rotten",
+      "growthSourceId": "mutated",
+      "ageYears": 2
+    },
+    {
+      "batchId": "coiling_cloud_vine_dried_wild_20",
+      "materialDefinitionId": "coiling_cloud_vine",
+      "servings": 3,
+      "preservationStateId": "dried",
+      "growthSourceId": "wild",
+      "ageYears": 20
+    },
+    {
+      "batchId": "frost_marrow_crystal_frozen_mutated_100",
+      "materialDefinitionId": "frost_marrow_crystal",
+      "servings": 3,
+      "preservationStateId": "frozen",
+      "growthSourceId": "mutated",
+      "ageYears": 100
+    },
+    {
+      "batchId": "sinking_fragrance_bark_dried_cultivated_50",
+      "materialDefinitionId": "sinking_fragrance_bark",
+      "servings": 3,
+      "preservationStateId": "dried",
+      "growthSourceId": "cultivated",
+      "ageYears": 50
     }
   ]
 }

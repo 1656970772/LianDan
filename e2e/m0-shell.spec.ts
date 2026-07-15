@@ -3,6 +3,8 @@ import { PNG } from 'pngjs'
 
 import { canonicalizeCompositionMap } from '../src/config/assets'
 import { computeSimulationContentFingerprint } from '../src/config/fingerprint'
+import { createSimulationFingerprintInput } from '../src/config/fingerprint-input'
+import { loadAndValidatePublicConfigWithAssets } from '../src/config/node-loader'
 
 const LOGICAL_WIDTH = 1600
 const LOGICAL_HEIGHT = 900
@@ -155,68 +157,21 @@ test('gAMA 与透明隐藏 RGB 不改变跨端 canonical RGBA 指纹', async ({
   const png = PNG.sync.write(image, { colorType: 6, inputColorType: 6 })
   const decoded = PNG.sync.read(png)
   const canonical = canonicalizeCompositionMap({
-    filePath: '/assets/masks/prototype-herb-components.png',
+    filePath: '/assets/masks/red_whisker_ginseng-components.png',
     width: decoded.width,
     height: decoded.height,
     rgba: Uint8Array.from(decoded.data),
   })
-  const expected = await computeSimulationContentFingerprint({
-    jsonRecords: [
-      {
-        recordType: 'rules-json',
-        logicalKey: 'parameters:global',
-        value: {
-          schemaVersion: 1,
-          standardPearlVolume: 1,
-          slagUnitVolume: 100,
-          simulation: {
-            fixedStepHz: 30,
-            maxCatchUpSteps: 5,
-          },
-          flowField: {
-            gridColumns: 80,
-            gridRows: 45,
-            cellSize: 20,
-            circleCoverageSamplesPerAxis: 4,
-            lateralSpread: 0.35,
-            obstacleDeflection: 0.75,
-            partialObstaclePenalty: 0.5,
-            mergeRate: 0.15,
-            fullObstacleThreshold: 0.95,
-          },
-          dissolution: {
-            volumePerTick: 0.18,
-            exposureProbeDistance: 18,
-          },
-          loss: {
-            naturalRatePerMinute: 0.01,
-            warningThresholds: [0.5, 0.65],
-            failureThreshold: 0.7,
-          },
-        },
-      },
-      {
-        recordType: 'rules-json',
-        logicalKey: 'material:prototype-herb',
-        value: {
-          schemaVersion: 1,
-          id: 'prototype-herb',
-          targetPearlCount: 8,
-        },
-      },
-    ],
-    rgbaRecords: [
-      {
-        recordType: 'composition-rgba',
-        logicalKey: 'material:prototype-herb',
-        width: decoded.width,
-        height: decoded.height,
-        rgba: canonical.rgba,
-      },
-    ],
-  })
+  const production = loadAndValidatePublicConfigWithAssets(process.cwd())
+  if (!production.ok) throw new Error(JSON.stringify(production.issues))
+  const maps = production.compositionMaps.map((map) =>
+    map.filePath === canonical.filePath ? canonical : map,
+  )
+  const expected = await computeSimulationContentFingerprint(
+    createSimulationFingerprintInput(production.config, maps),
+  )
 
-  await page.route('**/assets/masks/prototype-herb-components.png', async (route) => {
+  await page.route('**/assets/masks/red_whisker_ginseng-components.png', async (route) => {
     await route.fulfill({ body: png, contentType: 'image/png', status: 200 })
   })
   await page.goto('/?mode=technical')
@@ -237,7 +192,7 @@ test('半透明成分像素在浏览器边界稳定拒绝', async ({ page }) => 
   image.gamma = 1
   const png = PNG.sync.write(image, { colorType: 6, inputColorType: 6 })
 
-  await page.route('**/assets/masks/prototype-herb-components.png', async (route) => {
+  await page.route('**/assets/masks/red_whisker_ginseng-components.png', async (route) => {
     await route.fulfill({ body: png, contentType: 'image/png', status: 200 })
   })
   await page.goto('/?mode=technical')

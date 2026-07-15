@@ -96,6 +96,7 @@ export function createM2RuntimeConfiguration(
       material.targetPearlCount * base.parameters.standardPearlVolume
     return {
       ...batch,
+      tagIds: (batch.tags ?? []).map((tag) => tag.tagId),
       volumePerServing,
       medicinalLiquidVolumePerServing:
         volumePerServing * (medicinalCellCount / nonEmptyCellCount),
@@ -193,6 +194,24 @@ export function createM2RuntimeConfiguration(
         deceleration: collector.deceleration,
         maxSpeed: collector.maxSpeed,
       },
+      interactions: (gameplay.interactions ?? []).map((interaction) => ({
+        id: interaction.id,
+        behavior: interaction.behavior,
+        participantA: {
+          materialDefinitionIds: [...interaction.participantA.materialDefinitionIds],
+          requiredTagIds: [...interaction.participantA.requiredTagIds],
+          pearlTypes: [...interaction.participantA.pearlTypes],
+        },
+        participantB: {
+          materialDefinitionIds: [...interaction.participantB.materialDefinitionIds],
+          requiredTagIds: [...interaction.participantB.requiredTagIds],
+          pearlTypes: [...interaction.participantB.pearlTypes],
+        },
+        distance: interaction.distance,
+        durationSeconds: interaction.durationSeconds,
+        impulse: interaction.impulse,
+        cooldownSeconds: interaction.cooldownSeconds,
+      })),
       worldBounds: {
         left: 0,
         top: 0,

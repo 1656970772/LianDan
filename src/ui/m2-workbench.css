@@ -320,7 +320,7 @@
 
 .m2-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 7px 0 0;
 }
@@ -380,6 +380,106 @@
   align-items: center;
   gap: 9px;
   text-align: left;
+}
+
+.m4-inventory-entry {
+  display: grid;
+  gap: 6px;
+}
+
+.m4-material-tip {
+  display: none;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--m2-accent) 52%, var(--m2-border));
+  border-radius: var(--m2-radius);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--m2-accent) 8%, transparent), transparent 52%),
+    var(--m2-surface-raised);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--m2-accent) 72%, transparent);
+}
+
+.m4-inventory-entry:hover .m4-material-tip,
+.m4-inventory-entry:focus-within .m4-material-tip {
+  display: grid;
+  gap: 6px;
+}
+
+.m4-material-tip__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.m4-material-tip__header strong {
+  font-size: 0.875rem;
+}
+
+.m4-material-tip__header span {
+  color: var(--m2-muted);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.m4-material-tip__groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 8px;
+}
+
+.m4-tag-group {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.m4-tag-group:last-child {
+  grid-column: 2 / -1;
+}
+
+.m4-tag-group:last-child .m4-tag-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.m4-tag-group h3 {
+  margin: 0;
+  color: var(--m2-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.m4-tag-list,
+.m4-tag {
+  display: grid;
+  gap: 4px;
+}
+
+.m4-tag {
+  grid-template-columns: minmax(2rem, auto) minmax(1.6rem, 1fr);
+  align-items: center;
+}
+
+.m4-tag__label {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m4-tag__strength {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--m2-border) 40%, transparent);
+}
+
+.m4-tag__strength-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--m2-accent);
 }
 
 .m2-inventory-item[aria-pressed="true"] {

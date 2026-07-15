@@ -1,11 +1,13 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js'
 
 import { configIssue, type ConfigIssue } from './errors'
+import { deriveBatchTags } from './tag-derivation'
 import type {
   M2GameplaySchemaBundle,
   NormalizedM2Collector,
   NormalizedM2FireSource,
   NormalizedM2GameplayConfig,
+  NormalizedM2Interaction,
   NormalizedM2PearlType,
   NormalizedM2Prototype,
   RawM2GameplayConfig,
@@ -24,6 +26,7 @@ interface CompiledM2Schemas {
   readonly fireSources: ValidateFunction
   readonly pearlTypes: ValidateFunction
   readonly collector: ValidateFunction
+  readonly interactions: ValidateFunction
 }
 
 interface RawManifest {
@@ -33,6 +36,7 @@ interface RawManifest {
   readonly fireSources: string
   readonly pearlTypes: string
   readonly collector: string
+  readonly interactions?: string
 }
 
 interface RawPrototype extends NormalizedM2Prototype {
@@ -53,6 +57,11 @@ interface RawCollector extends NormalizedM2Collector {
   readonly schemaVersion: 1
 }
 
+interface RawInteractions {
+  readonly schemaVersion: 1
+  readonly interactions: readonly NormalizedM2Interaction[]
+}
+
 function compileSchemas(schemas: M2GameplaySchemaBundle): CompiledM2Schemas {
   const ajv = new Ajv2020({
     allErrors: true,
@@ -66,6 +75,7 @@ function compileSchemas(schemas: M2GameplaySchemaBundle): CompiledM2Schemas {
     fireSources: ajv.compile(schemas.fireSources),
     pearlTypes: ajv.compile(schemas.pearlTypes),
     collector: ajv.compile(schemas.collector),
+    interactions: ajv.compile(schemas.interactions),
   }
 }
 
@@ -154,6 +164,7 @@ function collectSemanticIssues(
   const fireDocument = raw.fireSources.value as RawFireSources
   const pearlDocument = raw.pearlTypes.value as RawPearlTypes
   const collector = raw.collector.value as RawCollector
+  const interactionDocument = raw.interactions?.value as RawInteractions | undefined
   const issues: ConfigIssue[] = []
 
   const referencedDocuments = [
@@ -174,6 +185,28 @@ function collectSemanticIssues(
         ),
       )
     }
+  }
+  if (
+    manifest.interactions !== undefined &&
+    manifest.interactions !== raw.interactions?.filePath
+  ) {
+    issues.push(
+      configIssue(
+        'CONFIG_REFERENCE_NOT_FOUND',
+        raw.manifest.filePath,
+        '/interactions',
+        `找不到已登记的 M2 配置 ${manifest.interactions}`,
+      ),
+    )
+  } else if (manifest.interactions === undefined && raw.interactions !== undefined) {
+    issues.push(
+      configIssue(
+        'CONFIG_UNREGISTERED_DOCUMENT',
+        raw.interactions.filePath,
+        '',
+        '互动配置未在 m2-config-set.json 中登记',
+      ),
+    )
   }
 
   const materialIds = new Set(baseConfig.materials.map(({ id }) => id))
@@ -199,6 +232,53 @@ function collectSemanticIssues(
           `找不到材料稳定 ID ${batch.materialDefinitionId}`,
         ),
       )
+    }
+    const stateFields = [
+      batch.preservationStateId,
+      batch.growthSourceId,
+      batch.ageYears,
+    ]
+    const definedStateFieldCount = stateFields.filter(
+      (value) => value !== undefined,
+    ).length
+    if (definedStateFieldCount !== 0 && definedStateFieldCount !== stateFields.length) {
+      issues.push(
+        semanticIssue(
+          raw.prototype.filePath,
+          `/inventoryBatches/${index}`,
+          '库存批次状态必须同时配置保存状态、生长来源和年份',
+        ),
+      )
+    } else if (definedStateFieldCount === stateFields.length) {
+      const material = baseConfig.materials.find(
+        (candidate) => candidate.id === batch.materialDefinitionId,
+      )
+      if (material !== undefined && baseConfig.tags !== undefined) {
+        const derived = deriveBatchTags(baseConfig.tags, material, {
+          preservationStateId: batch.preservationStateId!,
+          growthSourceId: batch.growthSourceId!,
+          ageYears: batch.ageYears!,
+        })
+        if (!derived.ok) {
+          issues.push(
+            configIssue(
+              'CONFIG_REFERENCE_NOT_FOUND',
+              raw.prototype.filePath,
+              `/inventoryBatches/${index}/${derived.missing}`,
+              `找不到库存状态派生规则 ${derived.value}`,
+            ),
+          )
+        }
+      } else if (material !== undefined) {
+        issues.push(
+          configIssue(
+            'CONFIG_REFERENCE_NOT_FOUND',
+            raw.prototype.filePath,
+            `/inventoryBatches/${index}`,
+            '库存批次状态需要已登记的 tags.json 派生规则',
+          ),
+        )
+      }
     }
   })
 
@@ -409,14 +489,63 @@ function collectSemanticIssues(
     )
   }
 
+  const tagIds = new Set(baseConfig.tags?.definitions.map((tag) => tag.id) ?? [])
+  const interactionIds = new Set<string>()
+  interactionDocument?.interactions.forEach((interaction, interactionIndex) => {
+    if (interactionIds.has(interaction.id)) {
+      issues.push(
+        configIssue(
+          'CONFIG_DUPLICATE_LOGICAL_KEY',
+          raw.interactions!.filePath,
+          `/interactions/${interactionIndex}/id`,
+          `互动稳定 ID ${interaction.id} 重复`,
+        ),
+      )
+    }
+    interactionIds.add(interaction.id)
+    for (const [participantName, selector] of [
+      ['participantA', interaction.participantA],
+      ['participantB', interaction.participantB],
+    ] as const) {
+      ;(selector.materialDefinitionIds ?? []).forEach((materialId, index) => {
+        if (!materialIds.has(materialId)) {
+          issues.push(
+            configIssue(
+              'CONFIG_REFERENCE_NOT_FOUND',
+              raw.interactions!.filePath,
+              `/interactions/${interactionIndex}/${participantName}/materialDefinitionIds/${index}`,
+              `找不到互动材料稳定 ID ${materialId}`,
+            ),
+          )
+        }
+      })
+      ;(selector.requiredTagIds ?? []).forEach((tagId, index) => {
+        if (!tagIds.has(tagId)) {
+          issues.push(
+            configIssue(
+              'CONFIG_REFERENCE_NOT_FOUND',
+              raw.interactions!.filePath,
+              `/interactions/${interactionIndex}/${participantName}/requiredTagIds/${index}`,
+              `找不到互动标签稳定 ID ${tagId}`,
+            ),
+          )
+        }
+      })
+    }
+  })
+
   return issues
 }
 
-function normalize(raw: RawM2GameplayConfig): NormalizedM2GameplayConfig {
+function normalize(
+  raw: RawM2GameplayConfig,
+  baseConfig: NormalizedConfig,
+): NormalizedM2GameplayConfig {
   const prototype = raw.prototype.value as RawPrototype
   const fireSources = raw.fireSources.value as RawFireSources
   const pearlTypes = raw.pearlTypes.value as RawPearlTypes
   const collector = raw.collector.value as RawCollector
+  const interactions = raw.interactions?.value as RawInteractions | undefined
   return deepFreeze({
     schemaVersion: 1,
     prototype: {
@@ -435,7 +564,27 @@ function normalize(raw: RawM2GameplayConfig): NormalizedM2GameplayConfig {
         colors: { ...prototype.theme.colors },
         radius: prototype.theme.radius,
       },
-      inventoryBatches: prototype.inventoryBatches.map((batch) => ({ ...batch })),
+      inventoryBatches: prototype.inventoryBatches.map((batch) => {
+        const material = baseConfig.materials.find(
+          (candidate) => candidate.id === batch.materialDefinitionId,
+        )
+        const hasState =
+          batch.preservationStateId !== undefined &&
+          batch.growthSourceId !== undefined &&
+          batch.ageYears !== undefined
+        const derived =
+          hasState && material !== undefined && baseConfig.tags !== undefined
+            ? deriveBatchTags(baseConfig.tags, material, {
+                preservationStateId: batch.preservationStateId!,
+                growthSourceId: batch.growthSourceId!,
+                ageYears: batch.ageYears!,
+              })
+            : null
+        return {
+          ...batch,
+          tags: derived?.ok === true ? derived.tags.map((tag) => ({ ...tag })) : [],
+        }
+      }),
     },
     fireSources: fireSources.fireSources
       .filter((source) => prototype.availableFireSourceIds.includes(source.id))
@@ -458,6 +607,23 @@ function normalize(raw: RawM2GameplayConfig): NormalizedM2GameplayConfig {
       deceleration: collector.deceleration,
       maxSpeed: collector.maxSpeed,
     },
+    interactions: (interactions?.interactions ?? []).map((interaction) => ({
+      ...interaction,
+      participantA: {
+        materialDefinitionIds: [
+          ...(interaction.participantA.materialDefinitionIds ?? []),
+        ],
+        requiredTagIds: [...(interaction.participantA.requiredTagIds ?? [])],
+        pearlTypes: [...(interaction.participantA.pearlTypes ?? [])],
+      },
+      participantB: {
+        materialDefinitionIds: [
+          ...(interaction.participantB.materialDefinitionIds ?? []),
+        ],
+        requiredTagIds: [...(interaction.participantB.requiredTagIds ?? [])],
+        pearlTypes: [...(interaction.participantB.pearlTypes ?? [])],
+      },
+    })),
   })
 }
 
@@ -474,10 +640,13 @@ export function validateAndNormalizeM2GameplayConfig(
     ...validateDocument(raw.fireSources, compiled.fireSources),
     ...validateDocument(raw.pearlTypes, compiled.pearlTypes),
     ...validateDocument(raw.collector, compiled.collector),
+    ...(raw.interactions === undefined
+      ? []
+      : validateDocument(raw.interactions, compiled.interactions)),
   ]
   if (schemaIssues.length > 0) return { ok: false, issues: schemaIssues }
 
   const semanticIssues = collectSemanticIssues(raw, baseConfig, baseConfigSetPath)
   if (semanticIssues.length > 0) return { ok: false, issues: semanticIssues }
-  return { ok: true, config: normalize(raw) }
+  return { ok: true, config: normalize(raw, baseConfig) }
 }

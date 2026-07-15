@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test'
 
 import type { M2Snapshot } from '../src/game/extraction/contracts.ts'
 
+const FIRST_BATCH_ID = 'red_whisker_ginseng_fresh_wild_10'
+const FIRST_BATCH_SELECTOR = `button[data-inventory-batch-id="${FIRST_BATCH_ID}"]`
+
 async function openM2(page: Page): Promise<M2Snapshot> {
   await page.goto('/')
   await expect(page.locator('body')).toHaveAttribute('data-app-state', 'ready')
@@ -94,7 +97,7 @@ async function alignCollectorWithMaterial(page: Page): Promise<void> {
   await page.waitForTimeout((releaseSpeed / movement.deceleration) * 1_000 + 100)
 }
 
-test.describe('M2 单材料纵向闭环', () => {
+test.describe('M2/M4 多药材萃取闭环', () => {
   test('WebGL 渲染器不保留 drawing buffer', async ({ page }) => {
     await openM2(page)
 
@@ -158,15 +161,27 @@ test.describe('M2 单材料纵向闭环', () => {
 
   test('运行帧刷新不夺走背包按钮焦点', async ({ page }) => {
     await openM2(page)
-    const inventoryButton = page.locator(
-      'button[data-inventory-batch-id="prototype-herb-batch"]',
-    )
+    const inventoryButton = page.locator(FIRST_BATCH_SELECTOR)
 
     await inventoryButton.focus()
     await expect(inventoryButton).toBeFocused()
     await page.waitForTimeout(350)
 
     await expect(inventoryButton).toBeFocused()
+  })
+
+  test('M4 背包展示 8 个批次及五类标签 Tips', async ({ page }) => {
+    const snapshot = await openM2(page)
+    expect(snapshot.inventory).toHaveLength(8)
+    expect(snapshot.inventory.every((batch) => batch.tags.length === 7)).toBe(true)
+
+    const inventoryButton = page.locator(FIRST_BATCH_SELECTOR)
+    await inventoryButton.focus()
+    const tip = page.locator(`[data-material-tip="${FIRST_BATCH_ID}"]`)
+    await expect(tip).toBeVisible()
+    await expect(tip).toContainText('新鲜 · 野生 · 十年')
+    await expect(tip.locator('[data-tag-category]')).toHaveCount(5)
+    await expect(tip.locator('[role="meter"]')).toHaveCount(7)
   })
 
   test('复用 M1 连续火焰热场与 M3 类型化丹珠表现', async ({ page }) => {
@@ -183,9 +198,7 @@ test.describe('M2 单材料纵向闭环', () => {
     await page.locator('button[data-fire-source-id="basic-fire"]').click()
     await page.locator('[data-fire-size]').focus()
     await page.keyboard.press('End')
-    await page
-      .locator('button[data-inventory-batch-id="prototype-herb-batch"]')
-      .click()
+    await page.locator(FIRST_BATCH_SELECTOR).click()
     await page.locator('[data-action="add-material"]').click()
     await expect
       .poll(() =>
@@ -415,9 +428,7 @@ test.describe('M2 单材料纵向闭环', () => {
 
   test('药材批次耗尽后清除待投展示并禁用投入', async ({ page }) => {
     await openM2(page)
-    await page
-      .locator('button[data-inventory-batch-id="prototype-herb-batch"]')
-      .click()
+    await page.locator(FIRST_BATCH_SELECTOR).click()
 
     for (const remainingServings of [2, 1, 0]) {
       await page.locator('[data-action="add-material"]').click()
@@ -430,11 +441,7 @@ test.describe('M2 单材料纵向闭环', () => {
         .toBe(remainingServings)
     }
 
-    await expect(
-      page.locator(
-        'button[data-inventory-batch-id="prototype-herb-batch"]',
-      ),
-    ).toBeDisabled()
+    await expect(page.locator(FIRST_BATCH_SELECTOR)).toBeDisabled()
     await expect(page.locator('[data-action="add-material"]')).toBeDisabled()
     await expect(page.locator('[data-selected-material]')).toContainText(
       '尚未选择药材',
@@ -482,6 +489,14 @@ test.describe('M2 单材料纵向闭环', () => {
   })
 
   test('背包预选、取消、投入后真实烧完并接珠完成一炉', async ({ page }) => {
+    await page.route('**/config/materials/red_whisker_ginseng.json', async (route) => {
+      const response = await route.fetch()
+      const material = await response.json() as Record<string, unknown>
+      await route.fulfill({
+        response,
+        json: { ...material, targetPearlCount: 24 },
+      })
+    })
     await openM2(page)
     await page.locator('button[data-fire-source-id="basic-fire"]').click()
     await page.locator('[data-fire-size]').focus()
@@ -489,18 +504,14 @@ test.describe('M2 单材料纵向闭环', () => {
     await expect
       .poll(() => page.evaluate(() => window.__LIANDAN_M2__!.getSnapshot().fireSize))
       .toBe(100)
-    await page
-      .locator('button[data-inventory-batch-id="prototype-herb-batch"]')
-      .click()
-    await expect(page.locator('[data-selected-material]')).toContainText('青岚草')
+    await page.locator(FIRST_BATCH_SELECTOR).click()
+    await expect(page.locator('[data-selected-material]')).toContainText('赤须参')
     await page.locator('[data-action="cancel-material"]').click()
     await expect(page.locator('[data-selected-material]')).toContainText(
       '尚未选择药材',
     )
 
-    await page
-      .locator('button[data-inventory-batch-id="prototype-herb-batch"]')
-      .click()
+    await page.locator(FIRST_BATCH_SELECTOR).click()
     await page.locator('[data-action="add-material"]').click()
     await expect
       .poll(() =>

@@ -15,6 +15,16 @@ import { loadAndValidatePublicConfig } from '../../config/node-loader'
 import { loadAndValidatePublicM2GameplayConfig } from '../../config/node-m2-gameplay-loader'
 
 const fixtureRoots: string[] = []
+const MATERIAL_IDS = [
+  'red_whisker_ginseng',
+  'azure_dew_leaf',
+  'violet_star_flower',
+  'golden_bell_fruit',
+  'ash_spore_mushroom',
+  'coiling_cloud_vine',
+  'frost_marrow_crystal',
+  'sinking_fragrance_bark',
+] as const
 
 function createConfigFixture(
   overrides: Readonly<Record<string, string>>,
@@ -97,17 +107,17 @@ describe('loadAndValidatePublicM2GameplayConfig', () => {
     expect(result).toMatchObject({
       ok: true,
       config: {
-        base: { materials: [{ id: 'prototype-herb' }] },
+        base: { materials: MATERIAL_IDS.map((id) => ({ id })) },
         gameplay: {
           prototype: { fireSizeWheelStep: 4 },
           pearlTypes: expect.any(Array),
         },
       },
-      compositionMaps: [
+      compositionMaps: MATERIAL_IDS.map((id) =>
         expect.objectContaining({
-          filePath: '/assets/masks/prototype-herb-components.png',
+          filePath: `/assets/masks/${id}-components.png`,
         }),
-      ],
+      ),
       simulationContentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     if (result.ok) {

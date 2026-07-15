@@ -1,39 +1,21 @@
+import { fileURLToPath } from 'node:url'
+
 import { describe, expect, it } from 'vitest'
 
-import configSetJson from '../../../public/config/config-set.json'
-import materialJson from '../../../public/config/materials/prototype-herb.json'
-import parametersJson from '../../../public/config/parameters.json'
 import fixtureJson from '../../../public/config/performance/m1-fire-flow.json'
 import type { M1FireFlowFixture } from '../../config/m1-fire-flow-fixture.ts'
-import { validateAndNormalizeConfigSet } from '../../config/validate.ts'
+import { loadAndValidatePublicConfig } from '../../config/node-loader.ts'
 import {
   advanceM1Circles,
   createM1CircleObstacles,
 } from '../../game/m1/scenario-runtime.ts'
 import { FireFlowField } from '../../simulation/fire-flow/index.ts'
-import { loadTestSchemaBundle } from '../config/schema-fixture.ts'
 
 const fixture = fixtureJson as unknown as M1FireFlowFixture
 
 function loadNormalizedProductionDefaults() {
-  const result = validateAndNormalizeConfigSet(
-    {
-      configSet: {
-        filePath: '/config/config-set.json',
-        value: configSetJson,
-      },
-      parameters: {
-        filePath: '/config/parameters.json',
-        value: parametersJson,
-      },
-      materials: [
-        {
-          filePath: '/config/materials/prototype-herb.json',
-          value: materialJson,
-        },
-      ],
-    },
-    loadTestSchemaBundle(),
+  const result = loadAndValidatePublicConfig(
+    fileURLToPath(new URL('../../../', import.meta.url)),
   )
   if (!result.ok) throw new Error(JSON.stringify(result.issues))
   return result.config

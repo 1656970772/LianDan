@@ -43,6 +43,7 @@ interface ManifestShape {
   readonly fireSources: string
   readonly pearlTypes: string
   readonly collector: string
+  readonly interactions?: string
 }
 
 type DocumentLoadResult =
@@ -64,6 +65,7 @@ function loadSchemas(projectRoot: string): M2GameplaySchemaBundle {
     fireSources: readSchema('m2-fire-sources.schema.json'),
     pearlTypes: readSchema('m2-pearl-types.schema.json'),
     collector: readSchema('m2-collector.schema.json'),
+    interactions: readSchema('m2-interactions.schema.json'),
   }
 }
 
@@ -124,6 +126,9 @@ export async function loadAndValidatePublicM2GameplayConfig(
     loadDocument(projectRoot, manifest.fireSources),
     loadDocument(projectRoot, manifest.pearlTypes),
     loadDocument(projectRoot, manifest.collector),
+    ...(manifest.interactions === undefined
+      ? []
+      : [loadDocument(projectRoot, manifest.interactions)]),
   ]
   const loadIssues = documentLoads.flatMap((result) =>
     result.ok ? [] : [result.issue],
@@ -139,6 +144,7 @@ export async function loadAndValidatePublicM2GameplayConfig(
     fireSources: documents[1]!,
     pearlTypes: documents[2]!,
     collector: documents[3]!,
+    ...(manifest.interactions === undefined ? {} : { interactions: documents[4]! }),
   }
   const gameplayResult = validateAndNormalizeM2GameplayConfig(
     raw,

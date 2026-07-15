@@ -1,38 +1,20 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { M1FireFlowFixture } from '../../config/m1-fire-flow-fixture.ts'
-import { validateAndNormalizeConfigSet } from '../../config/validate.ts'
+import { loadAndValidatePublicConfig } from '../../config/node-loader.ts'
 import { sampleM1FlowView } from '../../game/m1/scenario-runtime.ts'
 import { M1TechnicalRuntime } from '../../game/m1/technical-runtime.ts'
-import { loadTestSchemaBundle } from '../config/schema-fixture.ts'
 
 function readJson(relativeUrl: string): unknown {
   return JSON.parse(readFileSync(new URL(relativeUrl, import.meta.url), 'utf8'))
 }
 
 function createRuntime(): M1TechnicalRuntime {
-  const validated = validateAndNormalizeConfigSet(
-    {
-      configSet: {
-        filePath: '/config/config-set.json',
-        value: readJson('../../../public/config/config-set.json'),
-      },
-      parameters: {
-        filePath: '/config/parameters.json',
-        value: readJson('../../../public/config/parameters.json'),
-      },
-      materials: [
-        {
-          filePath: '/config/materials/prototype-herb.json',
-          value: readJson(
-            '../../../public/config/materials/prototype-herb.json',
-          ),
-        },
-      ],
-    },
-    loadTestSchemaBundle(),
+  const validated = loadAndValidatePublicConfig(
+    fileURLToPath(new URL('../../../', import.meta.url)),
   )
   if (!validated.ok) throw new Error(JSON.stringify(validated.issues))
   return new M1TechnicalRuntime({

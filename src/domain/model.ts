@@ -17,6 +17,7 @@ export type InventoryBatchRule = Readonly<{
   servings: number
   volumePerServing: number
   medicinalLiquidVolumePerServing: number
+  tagIds?: readonly string[]
 }>
 
 export type ExtractionSettlementRules = Readonly<{
@@ -41,6 +42,7 @@ export type MaterialInstance = Readonly<{
   remainingVolume: number
   theoreticalMedicinalVolume?: number
   inheritedLossAtAddition?: number
+  tagIds?: readonly string[]
 }>
 
 export type PearlSource = Readonly<{
@@ -311,6 +313,7 @@ export function addMaterialServingFromBatch(
     theoreticalMedicinalVolume: batch.medicinalLiquidVolumePerServing,
     inheritedLossAtAddition:
       batch.medicinalLiquidVolumePerServing * deriveLossRate(state),
+    tagIds: [...(batch.tagIds ?? [])],
   }
   return allowed({
     ...state,

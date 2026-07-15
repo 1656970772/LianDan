@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "interactions": [
+    {
+      "id": "red_frost_medicinal_fight",
+      "nameZh": "赤寒相争",
+      "behavior": "fight",
+      "participantA": {
+        "materialDefinitionIds": ["red_whisker_ginseng"],
+        "pearlTypes": ["medicinalLiquid"]
+      },
+      "participantB": {
+        "materialDefinitionIds": ["frost_marrow_crystal"],
+        "pearlTypes": ["medicinalLiquid"]
+      },
+      "distance": 64,
+      "durationSeconds": 0.6,
+      "impulse": 180,
+      "cooldownSeconds": 1.5
+    }
+  ]
+}

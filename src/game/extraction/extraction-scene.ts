@@ -36,6 +36,7 @@ import {
 import { FirePresentation } from '../presentation/fire/fire-presentation.ts'
 import type { M2Snapshot } from './contracts.ts'
 import { M2GameplayRuntime } from './gameplay-runtime.ts'
+import { buildM2InventoryViews } from './inventory-view.ts'
 import {
   M2_DROPLET_PRESENTATION,
   M2_FIRE_OCCLUSION_CONFIG,
@@ -292,29 +293,14 @@ export class M2ExtractionScene extends Phaser.Scene {
     const runtime = this.#runtime.snapshot()
     const domain = runtime.domain
     const gameplay = this.#options.config.gameplay
-    const baseMaterials = new Map(
-      this.#options.config.base.materials.map((material) => [
-        material.id,
-        material,
-      ]),
-    )
     let caughtPearlCount = 0
     for (const outcome of Object.values(domain.ledger.terminalPearls)) {
       if (outcome === 'caught') caughtPearlCount += 1
     }
-    const inventory: M2WorkbenchModel['inventory'] =
-      gameplay.prototype.inventoryBatches.map((batch) => {
-        const material = baseMaterials.get(batch.materialDefinitionId)
-        return {
-          batchId: batch.batchId,
-          materialDefinitionId: batch.materialDefinitionId,
-          nameZh: material?.nameZh ?? batch.materialDefinitionId,
-          servings: domain.inventory[batch.batchId] ?? 0,
-          ...(material?.appearancePath === undefined
-            ? {}
-            : { imagePath: material.appearancePath }),
-        }
-      })
+    const inventory: M2WorkbenchModel['inventory'] = buildM2InventoryViews(
+      this.#options.config,
+      domain.inventory,
+    )
 
     return {
       ready: this.#ready,
@@ -357,6 +343,7 @@ export class M2ExtractionScene extends Phaser.Scene {
       ),
       activePearlCount: deriveActivePearlCount(domain),
       caughtPearlCount,
+      interactionCount: runtime.simulation.interactionCount,
     }
   }
 
@@ -827,12 +814,26 @@ export class M2ExtractionScene extends Phaser.Scene {
     const graphics = this.#pearlGraphics
     if (graphics === null) return
     graphics.clear()
+    const pearlById = new Map(view.pearls.map((pearl) => [pearl.pearlId, pearl]))
+    for (const interaction of view.activeInteractions) {
+      const pearlA = pearlById.get(interaction.pearlAId)
+      const pearlB = pearlById.get(interaction.pearlBId)
+      if (pearlA === undefined || pearlB === undefined) continue
+      graphics.lineStyle(3, colorNumber(this.#theme.danger), 0.68)
+      graphics.lineBetween(
+        pearlA.position.x,
+        pearlA.position.y,
+        pearlB.position.x,
+        pearlB.position.y,
+      )
+    }
     let caughtIndex = 0
     for (const pearl of view.pearls) {
       if (pearl.state === 'active') {
         this.#drawPearl(
           graphics,
           pearl.pearlType,
+          pearl.sourceMaterialDefinitionId,
           pearl.position.x,
           pearl.position.y,
           pearl.radius,
@@ -867,6 +868,7 @@ export class M2ExtractionScene extends Phaser.Scene {
         this.#drawPearl(
           graphics,
           pearl.pearlType,
+          pearl.sourceMaterialDefinitionId,
           x,
           y,
           Math.max(3, Math.min(7, pearl.radius * 0.24)),
@@ -880,6 +882,7 @@ export class M2ExtractionScene extends Phaser.Scene {
   #drawPearl(
     graphics: Phaser.GameObjects.Graphics,
     pearlType: PearlType,
+    sourceMaterialDefinitionId: string,
     x: number,
     y: number,
     radius: number,
@@ -888,7 +891,14 @@ export class M2ExtractionScene extends Phaser.Scene {
     const config = this.#options.config.gameplay.pearlTypes.find(
       (candidate) => candidate.pearlType === pearlType,
     )
-    const fillColor = colorNumber(config?.color ?? '#FFFFFF')
+    const material = this.#options.config.base.materials.find(
+      (candidate) => candidate.id === sourceMaterialDefinitionId,
+    )
+    const fillColor = colorNumber(
+      pearlType === 'medicinalLiquid'
+        ? material?.pearlColor ?? config?.color ?? '#FFFFFF'
+        : config?.color ?? '#FFFFFF',
+    )
     const outlineColor = colorNumber(config?.outlineColor ?? '#FFFFFF')
     if (pearlType === 'medicinalLiquid') {
       let outline = this.#dropletOutlines.get(radius)
@@ -976,6 +986,21 @@ export class M2ExtractionScene extends Phaser.Scene {
             y: pearl.position.y,
             life: 11,
             color: colorNumber(this.#theme.focus),
+          })
+        }
+      } else if (event.type === 'PearlInteractionStarted') {
+        const pearlA = simulation.pearls.find(
+          (candidate) => candidate.pearlId === event.pearlAId,
+        )
+        const pearlB = simulation.pearls.find(
+          (candidate) => candidate.pearlId === event.pearlBId,
+        )
+        if (pearlA !== undefined && pearlB !== undefined) {
+          this.#eventSparks.push({
+            x: (pearlA.position.x + pearlB.position.x) * 0.5,
+            y: (pearlA.position.y + pearlB.position.y) * 0.5,
+            life: 15,
+            color: colorNumber(this.#theme.danger),
           })
         }
       } else if (event.type === 'PearlDamaged' || event.type === 'PearlBurned') {

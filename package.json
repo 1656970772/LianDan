@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "validate:config": "tsx scripts/validate-config.ts",
     "validate:assets": "tsx scripts/validate-assets.ts",
+    "generate:m4-assets": "tsx scripts/generate-m4-material-assets.ts",
     "test:e2e": "playwright test",
     "perf": "npm run validate:config && npm run build && tsx scripts/run-perf-scenario.ts",
     "build": "vite build",

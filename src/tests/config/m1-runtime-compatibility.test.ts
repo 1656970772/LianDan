@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
@@ -6,34 +7,15 @@ import {
   validateM1RuntimeCompatibility,
   type M1FireFlowFixture,
 } from '../../config/index.ts'
-import { validateAndNormalizeConfigSet } from '../../config/validate.ts'
-import { loadTestSchemaBundle } from './schema-fixture.ts'
+import { loadAndValidatePublicConfig } from '../../config/node-loader.ts'
 
 function readJson(relativeUrl: string): unknown {
   return JSON.parse(readFileSync(new URL(relativeUrl, import.meta.url), 'utf8'))
 }
 
 function loadProductionInputs() {
-  const validated = validateAndNormalizeConfigSet(
-    {
-      configSet: {
-        filePath: '/config/config-set.json',
-        value: readJson('../../../public/config/config-set.json'),
-      },
-      parameters: {
-        filePath: '/config/parameters.json',
-        value: readJson('../../../public/config/parameters.json'),
-      },
-      materials: [
-        {
-          filePath: '/config/materials/prototype-herb.json',
-          value: readJson(
-            '../../../public/config/materials/prototype-herb.json',
-          ),
-        },
-      ],
-    },
-    loadTestSchemaBundle(),
+  const validated = loadAndValidatePublicConfig(
+    fileURLToPath(new URL('../../../', import.meta.url)),
   )
   if (!validated.ok) throw new Error(JSON.stringify(validated.issues))
   return {

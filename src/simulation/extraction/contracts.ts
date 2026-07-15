@@ -60,6 +60,23 @@ export type ExtractionCollectorConfig = Readonly<{
   maxSpeed: number
 }>
 
+export type ExtractionInteractionSelector = Readonly<{
+  materialDefinitionIds: readonly string[]
+  requiredTagIds: readonly string[]
+  pearlTypes: readonly PearlType[]
+}>
+
+export type ExtractionInteractionConfig = Readonly<{
+  id: string
+  behavior: 'fight'
+  participantA: ExtractionInteractionSelector
+  participantB: ExtractionInteractionSelector
+  distance: number
+  durationSeconds: number
+  impulse: number
+  cooldownSeconds: number
+}>
+
 export type ExtractionWorldBounds = Readonly<{
   left: number
   top: number
@@ -81,6 +98,7 @@ export type ExtractionSimulationConfig = Readonly<{
   fireSource: ExtractionFireSourceConfig
   pearlPhysics: Readonly<Record<PearlType, ExtractionPearlPhysicsConfig>>
   collector: ExtractionCollectorConfig
+  interactions?: readonly ExtractionInteractionConfig[]
   worldBounds: ExtractionWorldBounds
 }>
 
@@ -117,6 +135,8 @@ export type ExtractionPearlReadView = Readonly<{
   sourceMaterialDefinitionId: string
   sourceMaterialInstanceId: string
   pearlType: PearlType
+  tags: readonly string[]
+  interactionProfileIds: readonly string[]
   currentVolume: number
   initialVolume: number
   radius: number
@@ -125,6 +145,18 @@ export type ExtractionPearlReadView = Readonly<{
   state: 'active' | 'caught' | 'missed' | 'burned'
   shield: Readonly<{ active: boolean; exposureTicks: number }>
   safeZone: Readonly<{ entered: boolean; enteredTick: number | null }>
+  interaction: Readonly<{
+    activeId: string | null
+    remainingTicks: number
+  }>
+}>
+
+export type ExtractionInteractionReadView = Readonly<{
+  interactionId: string
+  pearlAId: string
+  pearlBId: string
+  startedTick: number
+  remainingTicks: number
 }>
 
 export type ExtractionCollectorReadView = Readonly<{
@@ -161,6 +193,8 @@ export type ExtractionSimulationReadView = Readonly<{
   collector: ExtractionCollectorReadView
   fireFlow: ExtractionFireFlowReadView
   effectiveFireSource: ExtractionEffectiveFireSource | null
+  activeInteractions: readonly ExtractionInteractionReadView[]
+  interactionCount: number
 }>
 
 export type ExtractionPearlTerminal = Readonly<{

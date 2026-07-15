@@ -238,6 +238,132 @@ function affectedColumns(
 }
 
 describe('M2 纯萃取模拟事务', () => {
+  it('M4 丹珠继承批次标签，并在安全区内按配置触发赤寒相争', () => {
+    const medicinalCell = composition([{ column: 32, row: 63, type: 1 }])
+    const interactionConfig = config(medicinalCell, 1, {
+      safeZoneY: 40,
+      materials: [
+        { id: 'red_whisker_ginseng', targetPearlCount: 1, composition: medicinalCell },
+        { id: 'frost_marrow_crystal', targetPearlCount: 1, composition: medicinalCell },
+      ],
+      materialPlacement: {
+        center: { x: 56, y: 50 },
+        width: 64,
+        height: 64,
+        offsetPerInstance: { x: 16, y: 0 },
+        rotationRadiansPerInstance: 0,
+      },
+      pearlPhysics: {
+        medicinalLiquid: {
+          ...config(medicinalCell, 1).pearlPhysics.medicinalLiquid,
+          gravity: 0,
+        },
+        slag: config(medicinalCell, 1).pearlPhysics.slag,
+        impurity: config(medicinalCell, 1).pearlPhysics.impurity,
+      },
+      interactions: [
+        {
+          id: 'red_frost_medicinal_fight',
+          behavior: 'fight',
+          participantA: {
+            materialDefinitionIds: ['red_whisker_ginseng'],
+            requiredTagIds: ['warm_fierce'],
+            pearlTypes: ['medicinalLiquid'],
+          },
+          participantB: {
+            materialDefinitionIds: ['frost_marrow_crystal'],
+            requiredTagIds: ['extreme_cold'],
+            pearlTypes: ['medicinalLiquid'],
+          },
+          distance: 32,
+          durationSeconds: 2,
+          impulse: 10,
+          cooldownSeconds: 2,
+        },
+      ],
+    })
+    const simulation = new ExtractionSimulation(interactionConfig)
+    let state = domainState(1, {
+      materialInstances: [
+        {
+          materialInstanceId: 'material-instance-red',
+          materialDefinitionId: 'red_whisker_ginseng',
+          inventoryBatchId: 'batch-red',
+          initialVolume: 1,
+          remainingVolume: 1,
+          tagIds: ['warm_fierce', 'fresh'],
+        },
+        {
+          materialInstanceId: 'material-instance-frost',
+          materialDefinitionId: 'frost_marrow_crystal',
+          inventoryBatchId: 'batch-frost',
+          initialVolume: 1,
+          remainingVolume: 1,
+          tagIds: ['extreme_cold', 'frozen'],
+        },
+      ],
+    })
+
+    ;({ state } = runTick(simulation, state, 0))
+    expect(simulation.read().pearls).toHaveLength(2)
+    expect(simulation.read().pearls.map((pearl) => pearl.tags)).toEqual([
+      ['extreme_cold', 'frozen'],
+      ['fresh', 'warm_fierce'],
+    ])
+    expect(simulation.read().pearls.every(
+      (pearl) => pearl.interactionProfileIds.includes('red_frost_medicinal_fight'),
+    )).toBe(true)
+
+    const interacted = runTick(simulation, state, 1)
+    expect(interacted.delta.interactions).toEqual([
+      {
+        interactionId: 'red_frost_medicinal_fight',
+        pearlAId: 'pearl:material-instance-frost:medicinalLiquid:000001',
+        pearlBId: 'pearl:material-instance-red:medicinalLiquid:000001',
+      },
+    ])
+    expect(simulation.read().pearls.every((pearl) => pearl.safeZone.entered)).toBe(true)
+    expect(simulation.read()).toMatchObject({
+      interactionCount: 1,
+      activeInteractions: [
+        {
+          interactionId: 'red_frost_medicinal_fight',
+          remainingTicks: 2,
+        },
+      ],
+    })
+    const [first, second] = simulation.read().pearls
+    expect(first!.velocity.x * second!.velocity.x).toBeLessThan(0)
+  })
+
+  it('M4 互动配置拒绝不存在的材料引用', () => {
+    const map = composition([{ column: 32, row: 63, type: 1 }])
+    expect(
+      () => new ExtractionSimulation(config(map, 1, {
+        interactions: [
+          {
+            id: 'invalid-fight',
+            behavior: 'fight',
+            participantA: {
+              materialDefinitionIds: ['missing-material'],
+              requiredTagIds: [],
+              pearlTypes: ['medicinalLiquid'],
+            },
+            participantB: {
+              materialDefinitionIds: [MATERIAL_ID],
+              requiredTagIds: [],
+              pearlTypes: ['medicinalLiquid'],
+            },
+            distance: 10,
+            durationSeconds: 1,
+            impulse: 1,
+            cooldownSeconds: 1,
+          },
+        ],
+      })),
+    ).toThrow('SIM_EXTRACTION_CONFIG_INVALID:interactions.invalid-fight.participantA.materialDefinitionIds')
+  })
+
   it('ReadView 发布当前求解使用的有效火源，停火时恢复为空', () => {
     const map = composition([{ column: 32, row: 63, type: 1 }])
     const simulation = new ExtractionSimulation(config(map, 1))

@@ -130,7 +130,7 @@ describe('M2 application + ExtractionSimulation 完成闭环', () => {
     const targetTick = runtime.snapshot().application.nextTick
     runtime.captureRuleCommand({
       type: 'PreselectMaterial',
-      payload: { inventoryBatchId: 'prototype-herb-batch' },
+      payload: { inventoryBatchId: 'red_whisker_ginseng_fresh_wild_10' },
       targetTick,
     })
     runtime.captureRuleCommand({

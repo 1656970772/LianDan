@@ -152,6 +152,15 @@ function createDomainEvents(
     events.push({ type: 'PearlShieldActivated', tick, pearlId: activation.pearlId })
   }
 
+  for (const interaction of [...(delta.interactions ?? [])].sort(
+    (left, right) =>
+      left.interactionId.localeCompare(right.interactionId) ||
+      left.pearlAId.localeCompare(right.pearlAId) ||
+      left.pearlBId.localeCompare(right.pearlBId),
+  )) {
+    events.push({ type: 'PearlInteractionStarted', tick, ...interaction })
+  }
+
   const damagedPearlIds = new Set(
     delta.pearlVolumeChanges.map(({ pearlId }) => pearlId),
   )

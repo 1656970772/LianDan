@@ -60,6 +60,21 @@ export function createM2SimulationFingerprintInput(
           thrustAcceleration: pearlType.thrustAcceleration,
         },
       })),
+      ...(gameplay.interactions ?? []).map((interaction) => ({
+        recordType: 'rules-json' as const,
+        logicalKey: `m2-interaction:${interaction.id}`,
+        value: {
+          schemaVersion: gameplay.schemaVersion,
+          id: interaction.id,
+          behavior: interaction.behavior,
+          participantA: interaction.participantA,
+          participantB: interaction.participantB,
+          distance: interaction.distance,
+          durationSeconds: interaction.durationSeconds,
+          impulse: interaction.impulse,
+          cooldownSeconds: interaction.cooldownSeconds,
+        },
+      })),
       {
         recordType: 'rules-json',
         logicalKey: 'm2-collector:global',

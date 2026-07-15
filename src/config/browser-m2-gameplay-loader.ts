@@ -3,6 +3,7 @@ import fireSourcesSchemaText from '../../schemas/config/m2-fire-sources.schema.j
 import manifestSchemaText from '../../schemas/config/m2-config-set.schema.json?raw'
 import pearlTypesSchemaText from '../../schemas/config/m2-pearl-types.schema.json?raw'
 import prototypeSchemaText from '../../schemas/config/m2-prototype.schema.json?raw'
+import interactionsSchemaText from '../../schemas/config/m2-interactions.schema.json?raw'
 
 import {
   decodeBrowserPng,
@@ -53,6 +54,7 @@ interface ManifestShape {
   readonly fireSources: string
   readonly pearlTypes: string
   readonly collector: string
+  readonly interactions?: string
 }
 
 type DocumentLoadResult =
@@ -65,6 +67,7 @@ const schemas: M2GameplaySchemaBundle = Object.freeze({
   fireSources: JSON.parse(fireSourcesSchemaText) as Record<string, unknown>,
   pearlTypes: JSON.parse(pearlTypesSchemaText) as Record<string, unknown>,
   collector: JSON.parse(collectorSchemaText) as Record<string, unknown>,
+  interactions: JSON.parse(interactionsSchemaText) as Record<string, unknown>,
 })
 
 async function fetchDocument(
@@ -121,6 +124,9 @@ export async function loadBrowserM2GameplayConfig(
     fetchDocument(fetcher, manifest.fireSources),
     fetchDocument(fetcher, manifest.pearlTypes),
     fetchDocument(fetcher, manifest.collector),
+    ...(manifest.interactions === undefined
+      ? []
+      : [fetchDocument(fetcher, manifest.interactions)]),
   ])
   if (!baseResult.ok) return baseResult
 
@@ -138,6 +144,7 @@ export async function loadBrowserM2GameplayConfig(
     fireSources: documents[1]!,
     pearlTypes: documents[2]!,
     collector: documents[3]!,
+    ...(manifest.interactions === undefined ? {} : { interactions: documents[4]! }),
   }
   const gameplayResult = validateAndNormalizeM2GameplayConfig(
     raw,

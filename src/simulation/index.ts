@@ -14,6 +14,7 @@ export type {
   PearlEntity,
   PearlId,
   PearlLifecycleBuffers,
+  PearlInteractionDelta,
   PearlTerminalDelta,
   PearlTypeId,
   PearlVolumeChangeDelta,
@@ -33,6 +34,9 @@ export type {
   ExtractionCollectorReadView,
   ExtractionFireFlowReadView,
   ExtractionFireSourceConfig,
+  ExtractionInteractionConfig,
+  ExtractionInteractionReadView,
+  ExtractionInteractionSelector,
   ExtractionMaterialDefinition,
   ExtractionMaterialPlacement,
   ExtractionMaterialPlacementConfig,
@@ -48,6 +52,8 @@ export type {
   MaterialCompositionCode,
 } from './extraction/index.ts'
 export { FireFlowField } from './fire-flow/index.ts'
+export { SpatialHashGrid } from './spatial-hash-grid.ts'
+export type { SpatialHashEntry } from './spatial-hash-grid.ts'
 export type {
   FireFlowCircleObstacles,
   FireFlowFieldConfig,

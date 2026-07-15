@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "frost_marrow_crystal",
+  "nameZh": "寒髓晶",
+  "appearancePath": "/assets/materials/frost_marrow_crystal.png",
+  "pearlColor": "#70CFF2",
+  "targetPearlCount": 300,
+  "compositionMapPath": "/assets/masks/frost_marrow_crystal-components.png",
+  "intrinsicTags": {
+    "medicinalProperty": [{ "tagId": "extreme_cold", "strength": 100 }],
+    "efficacyClue": [{ "tagId": "suppress_heat", "strength": 100 }],
+    "reactionTrait": [{ "tagId": "stagnant", "strength": 100 }],
+    "risk": [{ "tagId": "cold_poison", "strength": 100 }]
+  }
+}

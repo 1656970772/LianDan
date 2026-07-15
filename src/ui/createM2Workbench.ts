@@ -20,6 +20,15 @@ export interface M2InventoryBatchView {
   readonly nameZh: string
   readonly servings: number
   readonly imagePath?: string
+  readonly stateSummaryZh: string
+  readonly tags: readonly Readonly<{
+    id: string
+    nameZh: string
+    category: 'medicinalProperty' | 'efficacyClue' | 'reactionTrait' | 'risk' | 'state'
+    categoryNameZh: string
+    descriptionZh: string
+    strength: number
+  }>[]
 }
 
 export interface M2FireSizeRange {
@@ -57,6 +66,7 @@ export interface M2WorkbenchModel {
   readonly materialRemaining: number
   readonly activePearlCount: number
   readonly caughtPearlCount: number
+  readonly interactionCount: number
 }
 
 export interface M2WorkbenchTheme {
@@ -341,6 +351,7 @@ export function createM2Workbench(
     ['remaining', '剩余药材'],
     ['active', '活动珠'],
     ['caught', '接液皿'],
+    ['interactions', '丹珠相争'],
   ] as const) {
     const metric = createElement(document, 'div', 'm2-metric')
     const term = document.createElement('dt')
@@ -679,10 +690,26 @@ export function createM2Workbench(
     }
   }
 
+  function handleInventoryFocusIn(event: FocusEvent): void {
+    const entry = getEventElement(event)?.closest<HTMLElement>('.m4-inventory-entry')
+    if (entry === undefined || entry === null) return
+    requestAnimationFrame(() => {
+      if (destroyed || !entry.isConnected) return
+      const entryRect = entry.getBoundingClientRect()
+      const listRect = inventoryList.getBoundingClientRect()
+      if (entryRect.bottom > listRect.bottom) {
+        inventoryList.scrollTop += Math.ceil(entryRect.bottom - listRect.bottom)
+      } else if (entryRect.top < listRect.top) {
+        inventoryList.scrollTop -= Math.ceil(listRect.top - entryRect.top)
+      }
+    })
+  }
+
   shell.addEventListener('click', handleClick)
   shell.addEventListener('input', handleInput)
   shell.addEventListener('contextmenu', handleContextMenu)
   shell.addEventListener('keydown', handleKeyDown)
+  inventoryList.addEventListener('focusin', handleInventoryFocusIn)
 
   function renderFireSources(
     model: M2WorkbenchModel,
@@ -760,6 +787,12 @@ export function createM2Workbench(
       button.dataset.inventoryBatchId = batch.batchId
       button.dataset.materialDefinitionId = batch.materialDefinitionId
       button.setAttribute('aria-pressed', String(selected))
+      const tipId = `m4-material-tip-${batch.batchId}`
+      button.setAttribute('aria-describedby', tipId)
+      button.setAttribute(
+        'aria-label',
+        `${batch.nameZh}，${batch.stateSummaryZh}，剩余 ${formatNumber(batch.servings)} 份`,
+      )
       button.disabled = view.controlsDisabled || batch.servings <= 0
       const image = createMaterialImage(batch)
       const name = createElement(document, 'span', 'm2-inventory-item__name')
@@ -768,7 +801,53 @@ export function createM2Workbench(
       count.textContent = `${formatNumber(batch.servings)} 份`
       if (image !== null) button.append(image)
       button.append(name, count)
-      items.push(button)
+      const entry = createElement(document, 'div', 'm4-inventory-entry')
+      const tip = createElement(document, 'section', 'm4-material-tip')
+      tip.id = tipId
+      tip.dataset.materialTip = batch.batchId
+      tip.setAttribute('role', 'tooltip')
+      const tipHeader = createElement(document, 'header', 'm4-material-tip__header')
+      const tipName = document.createElement('strong')
+      tipName.textContent = batch.nameZh
+      const tipState = createElement(document, 'span')
+      tipState.textContent = batch.stateSummaryZh
+      tipHeader.append(tipName, tipState)
+      const tagGroups = createElement(document, 'div', 'm4-material-tip__groups')
+      for (const [category, categoryNameZh] of [
+        ['medicinalProperty', '药性'],
+        ['efficacyClue', '功效线索'],
+        ['reactionTrait', '反应特征'],
+        ['risk', '风险'],
+        ['state', '批次状态'],
+      ] as const) {
+        const group = createElement(document, 'section', 'm4-tag-group')
+        group.dataset.tagCategory = category
+        const heading = document.createElement('h3')
+        heading.textContent = categoryNameZh
+        const tagList = createElement(document, 'div', 'm4-tag-list')
+        for (const tag of batch.tags.filter((candidate) => candidate.category === category)) {
+          const tagItem = createElement(document, 'div', 'm4-tag')
+          tagItem.title = tag.descriptionZh
+          const tagLabel = createElement(document, 'span', 'm4-tag__label')
+          tagLabel.textContent = tag.nameZh
+          const strength = createElement(document, 'span', 'm4-tag__strength')
+          strength.setAttribute('role', 'meter')
+          strength.setAttribute('aria-label', `${tag.nameZh}强度`)
+          strength.setAttribute('aria-valuemin', '0')
+          strength.setAttribute('aria-valuemax', '100')
+          strength.setAttribute('aria-valuenow', String(tag.strength))
+          const strengthFill = createElement(document, 'span', 'm4-tag__strength-fill')
+          strengthFill.style.width = `${Math.max(0, Math.min(100, tag.strength))}%`
+          strength.append(strengthFill)
+          tagItem.append(tagLabel, strength)
+          tagList.append(tagItem)
+        }
+        group.append(heading, tagList)
+        tagGroups.append(group)
+      }
+      tip.append(tipHeader, tagGroups)
+      entry.append(button, tip)
+      items.push(entry)
     }
     inventoryList.replaceChildren(...items)
 
@@ -840,6 +919,9 @@ export function createM2Workbench(
     )
     metricNodes.get('active')!.textContent = formatNumber(
       model.activePearlCount,
+    )
+    metricNodes.get('interactions')!.textContent = formatNumber(
+      model.interactionCount,
     )
     const contaminantVolume = model.caughtVolumes.slag + model.caughtVolumes.impurity
     metricNodes.get('caught')!.textContent =
@@ -933,6 +1015,7 @@ export function createM2Workbench(
       shell.removeEventListener('input', handleInput)
       shell.removeEventListener('contextmenu', handleContextMenu)
       shell.removeEventListener('keydown', handleKeyDown)
+      inventoryList.removeEventListener('focusin', handleInventoryFocusIn)
       if (activeDialog !== null) {
         dialogElement(activeDialog).hidden = true
         activeDialog = null

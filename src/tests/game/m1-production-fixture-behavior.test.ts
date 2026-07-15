@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
@@ -6,7 +7,7 @@ import type {
   M1FireFlowFixture,
   M1TechnicalProbe,
 } from '../../config/m1-fire-flow-fixture.ts'
-import { validateAndNormalizeConfigSet } from '../../config/validate.ts'
+import { loadAndValidatePublicConfig } from '../../config/node-loader.ts'
 import {
   createM1CircleObstacles,
   rasterizeM1FullObstacles,
@@ -16,7 +17,6 @@ import {
   type FireFlowCircleObstacles,
   type FireFlowReadView,
 } from '../../simulation/fire-flow/index.ts'
-import { loadTestSchemaBundle } from '../config/schema-fixture.ts'
 
 function readJson(relativeUrl: string): unknown {
   return JSON.parse(readFileSync(new URL(relativeUrl, import.meta.url), 'utf8'))
@@ -26,24 +26,8 @@ const fixture = readJson(
   '../../../public/config/performance/m1-fire-flow.json',
 ) as M1FireFlowFixture
 
-const normalized = validateAndNormalizeConfigSet(
-  {
-    configSet: {
-      filePath: '/config/config-set.json',
-      value: readJson('../../../public/config/config-set.json'),
-    },
-    parameters: {
-      filePath: '/config/parameters.json',
-      value: readJson('../../../public/config/parameters.json'),
-    },
-    materials: [
-      {
-        filePath: '/config/materials/prototype-herb.json',
-        value: readJson('../../../public/config/materials/prototype-herb.json'),
-      },
-    ],
-  },
-  loadTestSchemaBundle(),
+const normalized = loadAndValidatePublicConfig(
+  fileURLToPath(new URL('../../../', import.meta.url)),
 )
 if (!normalized.ok) throw new Error(JSON.stringify(normalized.issues))
 const flow = normalized.config.parameters.flowField

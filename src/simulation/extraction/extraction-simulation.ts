@@ -8,11 +8,13 @@ import type {
   InheritedLossDelta,
   NaturalLossDelta,
   PearlBirthDelta,
+  PearlInteractionDelta,
   PearlShieldActivationDelta,
   PearlTerminalDelta,
   PearlVolumeChangeDelta,
   SimulationDelta,
 } from '../contracts.ts'
+import { SpatialHashGrid } from '../spatial-hash-grid.ts'
 import {
   FireFlowField,
   type FireFlowCircleObstacles,
@@ -25,6 +27,8 @@ import {
   type ExtractionCollectorReadView,
   type ExtractionEffectiveFireSource,
   type ExtractionFireFlowReadView,
+  type ExtractionInteractionConfig,
+  type ExtractionInteractionSelector,
   type ExtractionMaterialDefinition,
   type ExtractionMaterialPlacement,
   type ExtractionMaterialReadView,
@@ -64,6 +68,7 @@ interface MutableMaterial extends MaterialGeometryState {
   readonly materialInstanceId: string
   readonly materialDefinitionId: string
   readonly inventoryBatchId: string
+  readonly tagIds: readonly string[]
   readonly definition: ExtractionMaterialDefinition
   readonly placement: ExtractionMaterialPlacement
   readonly initialVolume: number
@@ -81,6 +86,8 @@ interface MutablePearl {
   readonly sourceMaterialDefinitionId: string
   readonly sourceMaterialInstanceId: string
   readonly pearlType: PearlType
+  readonly tagIds: readonly string[]
+  readonly interactionProfileIds: readonly string[]
   readonly initialVolume: number
   currentVolume: number
   radius: number
@@ -90,6 +97,11 @@ interface MutablePearl {
   exposureTicks: number
   shieldActive: boolean
   safeZoneEnteredTick: number | null
+  activeInteractionId: string | null
+  interactionPartnerId: string | null
+  interactionStartedTick: number | null
+  interactionRemainingTicks: number
+  interactionCooldownUntilTicks: Record<string, number>
 }
 
 interface MutableCollector {
@@ -102,6 +114,7 @@ interface MutableSimulationState {
   materials: MutableMaterial[]
   pearls: MutablePearl[]
   collector: MutableCollector
+  interactionCount: number
 }
 
 interface MutableDissolutionEntry {
@@ -131,6 +144,7 @@ interface TickTransaction {
   naturalLosses: NaturalLossDelta[]
   inheritedLosses: InheritedLossDelta[]
   shieldActivations: PearlShieldActivationDelta[]
+  interactions: PearlInteractionDelta[]
   builtDelta: SimulationDelta | null
 }
 
@@ -166,6 +180,37 @@ function requirePositive(name: string, value: number): void {
 function validateVector(name: string, value: ExtractionVector): void {
   requireFinite(`${name}.x`, value.x)
   requireFinite(`${name}.y`, value.y)
+}
+
+function requireNonNegative(name: string, value: number): void {
+  requireFinite(name, value)
+  if (value < 0) throw new RangeError(`SIM_EXTRACTION_CONFIG_INVALID:${name}`)
+}
+
+function selectorMatchesPearl(
+  selector: ExtractionInteractionSelector,
+  pearl: Pick<MutablePearl, 'sourceMaterialDefinitionId' | 'pearlType' | 'tagIds'>,
+): boolean {
+  return (
+    (selector.materialDefinitionIds.length === 0 ||
+      selector.materialDefinitionIds.includes(pearl.sourceMaterialDefinitionId)) &&
+    (selector.pearlTypes.length === 0 || selector.pearlTypes.includes(pearl.pearlType)) &&
+    selector.requiredTagIds.every((tagId) => pearl.tagIds.includes(tagId))
+  )
+}
+
+function selectorHasCondition(selector: ExtractionInteractionSelector): boolean {
+  return (
+    selector.materialDefinitionIds.length > 0 ||
+    selector.requiredTagIds.length > 0 ||
+    selector.pearlTypes.length > 0
+  )
+}
+
+function requireUniqueValues(name: string, values: readonly string[]): void {
+  if (new Set(values).size !== values.length) {
+    throw new RangeError(`SIM_EXTRACTION_CONFIG_INVALID:${name}`)
+  }
 }
 
 function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionSimulationConfig {
@@ -300,6 +345,54 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
     throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:safeZoneY')
   }
 
+  const interactionIds = new Set<string>()
+  for (const interaction of config.interactions ?? []) {
+    if (interaction.id.length === 0 || interactionIds.has(interaction.id)) {
+      throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:interactions.id')
+    }
+    interactionIds.add(interaction.id)
+    if (interaction.behavior !== 'fight') {
+      throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:interactions.behavior')
+    }
+    requirePositive(`interactions.${interaction.id}.distance`, interaction.distance)
+    requirePositive(
+      `interactions.${interaction.id}.durationSeconds`,
+      interaction.durationSeconds,
+    )
+    requireNonNegative(`interactions.${interaction.id}.impulse`, interaction.impulse)
+    requireNonNegative(
+      `interactions.${interaction.id}.cooldownSeconds`,
+      interaction.cooldownSeconds,
+    )
+    for (const [participantName, selector] of [
+      ['participantA', interaction.participantA],
+      ['participantB', interaction.participantB],
+    ] as const) {
+      if (!selectorHasCondition(selector)) {
+        throw new RangeError(
+          `SIM_EXTRACTION_CONFIG_INVALID:interactions.${interaction.id}.${participantName}`,
+        )
+      }
+      requireUniqueValues(
+        `interactions.${interaction.id}.${participantName}.materialDefinitionIds`,
+        selector.materialDefinitionIds,
+      )
+      requireUniqueValues(
+        `interactions.${interaction.id}.${participantName}.requiredTagIds`,
+        selector.requiredTagIds,
+      )
+      requireUniqueValues(
+        `interactions.${interaction.id}.${participantName}.pearlTypes`,
+        selector.pearlTypes,
+      )
+      if (selector.materialDefinitionIds.some((id) => !materialIds.has(id))) {
+        throw new RangeError(
+          `SIM_EXTRACTION_CONFIG_INVALID:interactions.${interaction.id}.${participantName}.materialDefinitionIds`,
+        )
+      }
+    }
+  }
+
   const cloned: ExtractionSimulationConfig = {
     ...config,
     materials,
@@ -334,6 +427,21 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
       ...config.collector,
       initialCenter: { ...config.collector.initialCenter },
     },
+    interactions: [...(config.interactions ?? [])]
+      .sort((left, right) => compareStableId(left.id, right.id))
+      .map((interaction) => ({
+        ...interaction,
+        participantA: {
+          materialDefinitionIds: [...interaction.participantA.materialDefinitionIds],
+          requiredTagIds: [...interaction.participantA.requiredTagIds],
+          pearlTypes: [...interaction.participantA.pearlTypes],
+        },
+        participantB: {
+          materialDefinitionIds: [...interaction.participantB.materialDefinitionIds],
+          requiredTagIds: [...interaction.participantB.requiredTagIds],
+          pearlTypes: [...interaction.participantB.pearlTypes],
+        },
+      })),
     worldBounds: { ...config.worldBounds },
   }
   // FireFlowField owns the detailed solver/geometry validation.
@@ -384,6 +492,7 @@ function pearlTypeFromCode(code: number): PearlType | null {
 function cloneMaterial(material: MutableMaterial): MutableMaterial {
   return {
     ...material,
+    tagIds: [...material.tagIds],
     placement: {
       ...material.placement,
       center: { ...material.placement.center },
@@ -409,11 +518,13 @@ function cloneState(state: MutableSimulationState): MutableSimulationState {
       ...pearl,
       position: { ...pearl.position },
       velocity: { ...pearl.velocity },
+      interactionCooldownUntilTicks: { ...pearl.interactionCooldownUntilTicks },
     })),
     collector: {
       center: { ...state.collector.center },
       velocityX: state.collector.velocityX,
     },
+    interactionCount: state.interactionCount,
   }
 }
 
@@ -524,6 +635,12 @@ function pearlReadView(pearl: MutablePearl): ExtractionPearlReadView {
       entered: pearl.safeZoneEnteredTick !== null,
       enteredTick: pearl.safeZoneEnteredTick,
     }),
+    tags: Object.freeze([...pearl.tagIds]),
+    interactionProfileIds: Object.freeze([...pearl.interactionProfileIds]),
+    interaction: Object.freeze({
+      activeId: pearl.activeInteractionId,
+      remainingTicks: pearl.interactionRemainingTicks,
+    }),
   })
 }
 
@@ -565,6 +682,28 @@ function createReadView(
             direction: Object.freeze({ ...effectiveFireSource.direction }),
             width: effectiveFireSource.width,
           }),
+    activeInteractions: Object.freeze(
+      state.pearls
+        .filter(
+          (pearl) =>
+            pearl.state === 'active' &&
+            pearl.activeInteractionId !== null &&
+            pearl.interactionPartnerId !== null &&
+            pearl.interactionStartedTick !== null &&
+            compareStableId(pearl.pearlId, pearl.interactionPartnerId) < 0,
+        )
+        .sort((left, right) => compareStableId(left.pearlId, right.pearlId))
+        .map((pearl) =>
+          Object.freeze({
+            interactionId: pearl.activeInteractionId!,
+            pearlAId: pearl.pearlId,
+            pearlBId: pearl.interactionPartnerId!,
+            startedTick: pearl.interactionStartedTick!,
+            remainingTicks: pearl.interactionRemainingTicks,
+          }),
+        ),
+    ),
+    interactionCount: state.interactionCount,
   })
 }
 
@@ -577,6 +716,7 @@ function createEmptyState(config: ExtractionSimulationConfig): MutableSimulation
       center: { ...config.collector.initialCenter },
       velocityX: 0,
     },
+    interactionCount: 0,
   }
 }
 
@@ -652,6 +792,7 @@ export class ExtractionSimulation {
       naturalLosses: [],
       inheritedLosses: [],
       shieldActivations: [],
+      interactions: [],
       builtDelta: null,
     }
   }
@@ -737,6 +878,14 @@ export class ExtractionSimulation {
       shieldActivations: transaction.shieldActivations
         .slice()
         .sort((left, right) => compareStableId(left.pearlId, right.pearlId)),
+      interactions: transaction.interactions
+        .slice()
+        .sort(
+          (left, right) =>
+            compareStableId(left.interactionId, right.interactionId) ||
+            compareStableId(left.pearlAId, right.pearlAId) ||
+            compareStableId(left.pearlBId, right.pearlBId),
+        ),
     }
     return transaction.builtDelta
   }
@@ -881,6 +1030,7 @@ export class ExtractionSimulation {
       materialInstanceId: instance.materialInstanceId,
       materialDefinitionId: instance.materialDefinitionId,
       inventoryBatchId: instance.inventoryBatchId,
+      tagIds: [...(instance.tagIds ?? [])].sort(compareStableId),
       definition,
       placement,
       initialVolume: totalVolume,
@@ -1217,6 +1367,19 @@ export class ExtractionSimulation {
       .toString()
       .padStart(6, '0')}`
     const physics = this.#config.pearlPhysics[pearlType]
+    const pearlIdentity = {
+      sourceMaterialDefinitionId: material.materialDefinitionId,
+      pearlType,
+      tagIds: material.tagIds,
+    }
+    const interactionProfileIds = (this.#config.interactions ?? [])
+      .filter(
+        (interaction) =>
+          selectorMatchesPearl(interaction.participantA, pearlIdentity) ||
+          selectorMatchesPearl(interaction.participantB, pearlIdentity),
+      )
+      .map((interaction) => interaction.id)
+      .sort(compareStableId)
     const radius =
       physics.radiusAtStandardVolume *
       Math.sqrt(volume / this.#config.standardPearlVolume)
@@ -1225,6 +1388,8 @@ export class ExtractionSimulation {
       sourceMaterialDefinitionId: material.materialDefinitionId,
       sourceMaterialInstanceId: material.materialInstanceId,
       pearlType,
+      tagIds: [...material.tagIds],
+      interactionProfileIds,
       initialVolume: volume,
       currentVolume: volume,
       radius,
@@ -1234,6 +1399,11 @@ export class ExtractionSimulation {
       exposureTicks: 0,
       shieldActive: false,
       safeZoneEnteredTick: null,
+      activeInteractionId: null,
+      interactionPartnerId: null,
+      interactionStartedTick: null,
+      interactionRemainingTicks: 0,
+      interactionCooldownUntilTicks: {},
     })
     transaction.births.push({
       pearlId,
@@ -1347,6 +1517,7 @@ export class ExtractionSimulation {
       }
 
       if (pearl.currentVolume === 0) {
+        this.#clearPearlInteraction(transaction.state, pearl)
         pearl.state = 'burned'
         pearl.velocity = { x: velocityX, y: velocityY }
         transaction.terminals.push({ pearlId: pearl.pearlId, outcome: 'burned' })
@@ -1404,6 +1575,182 @@ export class ExtractionSimulation {
         pearl.position = resolved
         pearl.velocity = { x: velocityX, y: velocityY }
       }
+    }
+    this.#resolveInteractions(transaction)
+  }
+
+  #resolveInteractions(transaction: TickTransaction): void {
+    const interactions = this.#config.interactions ?? []
+    const activePearls = transaction.state.pearls
+      .filter((pearl) => pearl.state === 'active')
+      .sort((left, right) => compareStableId(left.pearlId, right.pearlId))
+    const pearlsById = new Map(
+      transaction.state.pearls.map((pearl) => [pearl.pearlId, pearl]),
+    )
+
+    for (const pearl of transaction.state.pearls) {
+      if (pearl.activeInteractionId === null) continue
+      const partner =
+        pearl.interactionPartnerId === null
+          ? undefined
+          : pearlsById.get(pearl.interactionPartnerId)
+      if (
+        pearl.state !== 'active' ||
+        partner?.state !== 'active' ||
+        partner.activeInteractionId !== pearl.activeInteractionId ||
+        partner.interactionPartnerId !== pearl.pearlId
+      ) {
+        this.#clearPearlInteraction(transaction.state, pearl)
+      }
+    }
+
+    for (const pearl of activePearls) {
+      if (
+        pearl.activeInteractionId === null ||
+        pearl.interactionPartnerId === null ||
+        compareStableId(pearl.pearlId, pearl.interactionPartnerId) >= 0
+      ) continue
+      const partner = pearlsById.get(pearl.interactionPartnerId)
+      if (partner === undefined) {
+        this.#clearPearlInteraction(transaction.state, pearl)
+        continue
+      }
+      const remainingTicks = Math.min(
+        pearl.interactionRemainingTicks,
+        partner.interactionRemainingTicks,
+      ) - 1
+      if (remainingTicks <= 0) {
+        this.#clearPearlInteraction(transaction.state, pearl)
+      } else {
+        pearl.interactionRemainingTicks = remainingTicks
+        partner.interactionRemainingTicks = remainingTicks
+      }
+    }
+
+    if (interactions.length === 0 || activePearls.length < 2) return
+    const maximumDistance = Math.max(...interactions.map((interaction) => interaction.distance))
+    const grid = new SpatialHashGrid<MutablePearl>(maximumDistance)
+    for (const pearl of activePearls) {
+      grid.insert({
+        id: pearl.pearlId,
+        x: pearl.position.x,
+        y: pearl.position.y,
+        value: pearl,
+      })
+    }
+    const busyPearlIds = new Set(
+      activePearls
+        .filter((pearl) => pearl.activeInteractionId !== null)
+        .map((pearl) => pearl.pearlId),
+    )
+
+    for (const pearlA of activePearls) {
+      if (busyPearlIds.has(pearlA.pearlId)) continue
+      for (const neighbor of grid.query(
+        pearlA.position.x,
+        pearlA.position.y,
+        maximumDistance,
+      )) {
+        const pearlB = neighbor.value
+        if (
+          compareStableId(pearlA.pearlId, pearlB.pearlId) >= 0 ||
+          busyPearlIds.has(pearlB.pearlId)
+        ) continue
+        const interaction = interactions.find((candidate) => {
+          if (
+            transaction.tick < (pearlA.interactionCooldownUntilTicks[candidate.id] ?? 0) ||
+            transaction.tick < (pearlB.interactionCooldownUntilTicks[candidate.id] ?? 0)
+          ) return false
+          const deltaX = pearlB.position.x - pearlA.position.x
+          const deltaY = pearlB.position.y - pearlA.position.y
+          if (deltaX * deltaX + deltaY * deltaY > candidate.distance * candidate.distance) {
+            return false
+          }
+          return (
+            (selectorMatchesPearl(candidate.participantA, pearlA) &&
+              selectorMatchesPearl(candidate.participantB, pearlB)) ||
+            (selectorMatchesPearl(candidate.participantA, pearlB) &&
+              selectorMatchesPearl(candidate.participantB, pearlA))
+          )
+        })
+        if (interaction === undefined) continue
+        this.#startInteraction(transaction, interaction, pearlA, pearlB)
+        busyPearlIds.add(pearlA.pearlId)
+        busyPearlIds.add(pearlB.pearlId)
+        break
+      }
+    }
+  }
+
+  #startInteraction(
+    transaction: TickTransaction,
+    interaction: ExtractionInteractionConfig,
+    pearlA: MutablePearl,
+    pearlB: MutablePearl,
+  ): void {
+    let deltaX = pearlB.position.x - pearlA.position.x
+    let deltaY = pearlB.position.y - pearlA.position.y
+    let distance = Math.hypot(deltaX, deltaY)
+    if (distance <= GEOMETRY_EPSILON) {
+      const angle =
+        seededUnitInterval(
+          this.#config.seed,
+          `${interaction.id}:${pearlA.pearlId}:${pearlB.pearlId}`,
+        ) * Math.PI * 2
+      deltaX = Math.cos(angle)
+      deltaY = Math.sin(angle)
+      distance = 1
+    }
+    const directionX = deltaX / distance
+    const directionY = deltaY / distance
+    pearlA.velocity = {
+      x: pearlA.velocity.x - directionX * interaction.impulse,
+      y: pearlA.velocity.y - directionY * interaction.impulse,
+    }
+    pearlB.velocity = {
+      x: pearlB.velocity.x + directionX * interaction.impulse,
+      y: pearlB.velocity.y + directionY * interaction.impulse,
+    }
+    const durationTicks = Math.max(
+      1,
+      Math.ceil(interaction.durationSeconds / this.#config.fixedDeltaSeconds),
+    )
+    const cooldownTicks = Math.ceil(
+      interaction.cooldownSeconds / this.#config.fixedDeltaSeconds,
+    )
+    const cooldownUntilTick = transaction.tick + durationTicks + cooldownTicks
+    for (const [pearl, partner] of [
+      [pearlA, pearlB],
+      [pearlB, pearlA],
+    ] as const) {
+      pearl.activeInteractionId = interaction.id
+      pearl.interactionPartnerId = partner.pearlId
+      pearl.interactionStartedTick = transaction.tick
+      pearl.interactionRemainingTicks = durationTicks
+      pearl.interactionCooldownUntilTicks[interaction.id] = cooldownUntilTick
+    }
+    transaction.state.interactionCount += 1
+    transaction.interactions.push({
+      interactionId: interaction.id,
+      pearlAId: pearlA.pearlId,
+      pearlBId: pearlB.pearlId,
+    })
+  }
+
+  #clearPearlInteraction(state: MutableSimulationState, pearl: MutablePearl): void {
+    const partner =
+      pearl.interactionPartnerId === null
+        ? undefined
+        : state.pearls.find((candidate) => candidate.pearlId === pearl.interactionPartnerId)
+    pearl.activeInteractionId = null
+    pearl.interactionPartnerId = null
+    pearl.interactionStartedTick = null
+    pearl.interactionRemainingTicks = 0
+    if (partner?.interactionPartnerId === pearl.pearlId) {
+      partner.activeInteractionId = null
+      partner.interactionPartnerId = null
+      partner.interactionStartedTick = null
+      partner.interactionRemainingTicks = 0
     }
   }
 
@@ -1488,6 +1835,7 @@ export class ExtractionSimulation {
             volume: loss,
           })
           if (pearl.currentVolume === 0) {
+            this.#clearPearlInteraction(transaction.state, pearl)
             pearl.state = 'burned'
             transaction.terminals.push({
               pearlId: pearl.pearlId,
@@ -1544,6 +1892,7 @@ export class ExtractionSimulation {
         outcome = 'missed'
       }
       if (outcome === null) continue
+      this.#clearPearlInteraction(transaction.state, pearl)
       pearl.state = outcome
       transaction.terminals.push({ pearlId: pearl.pearlId, outcome })
     }

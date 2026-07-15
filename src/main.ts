@@ -19,6 +19,7 @@ import {
   type M2GameHandle,
 } from './game/index.ts'
 import { M1_BEHAVIORS, listM1Scenarios } from './game/m1/scenarios.ts'
+import { buildM2InventoryViews } from './game/extraction/inventory-view.ts'
 import './style.css'
 import {
   createM1Workbench,
@@ -61,8 +62,11 @@ function writeM1RuntimeQuery(
 }
 
 function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
-  const materialById = new Map(
-    config.base.materials.map((material) => [material.id, material] as const),
+  const initialServings = Object.fromEntries(
+    config.gameplay.prototype.inventoryBatches.map((batch) => [
+      batch.batchId,
+      batch.servings,
+    ]),
   )
   return {
     sessionId: 'session-000001',
@@ -88,22 +92,12 @@ function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
     failureResult: null,
     paused: false,
     restartConfirmation: 'closed',
-    inventory: config.gameplay.prototype.inventoryBatches.map((batch) => {
-      const material = materialById.get(batch.materialDefinitionId)
-      return {
-        batchId: batch.batchId,
-        materialDefinitionId: batch.materialDefinitionId,
-        nameZh: material?.nameZh ?? batch.materialDefinitionId,
-        servings: batch.servings,
-        ...(material?.appearancePath === undefined
-          ? {}
-          : { imagePath: material.appearancePath }),
-      }
-    }),
+    inventory: buildM2InventoryViews(config, initialServings),
     selectedMaterialBatchId: null,
     materialRemaining: 0,
     activePearlCount: 0,
     caughtPearlCount: 0,
+    interactionCount: 0,
   }
 }
 

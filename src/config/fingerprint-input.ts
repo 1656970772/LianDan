@@ -45,6 +45,24 @@ export function createSimulationFingerprintInput(
           },
         },
       },
+      ...(config.tags?.definitions ?? []).map((tag) => ({
+        recordType: 'rules-json' as const,
+        logicalKey: `tag:${tag.id}`,
+        value: {
+          schemaVersion: config.schemaVersion,
+          id: tag.id,
+          category: tag.category,
+        },
+      })),
+      ...(config.tags === undefined
+        ? []
+        : [
+            {
+              recordType: 'rules-json' as const,
+              logicalKey: 'tag-state-derivation:global',
+              value: config.tags.stateDerivation,
+            },
+          ]),
       ...config.materials.map((material) => ({
         recordType: 'rules-json',
         logicalKey: `material:${material.id}`,
@@ -52,6 +70,12 @@ export function createSimulationFingerprintInput(
           schemaVersion: config.schemaVersion,
           id: material.id,
           targetPearlCount: material.targetPearlCount,
+          intrinsicTags: material.intrinsicTags ?? {
+            medicinalProperty: [],
+            efficacyClue: [],
+            reactionTrait: [],
+            risk: [],
+          },
         },
       })),
     ],

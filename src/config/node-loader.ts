@@ -38,6 +38,7 @@ export function loadConfigSchemaBundle(projectRoot: string): ConfigSchemaBundle 
     configSet: readSchema('config-set.schema.json'),
     parameters: readSchema('parameters.schema.json'),
     material: readSchema('material.schema.json'),
+    tags: readSchema('tags.schema.json'),
   }
 }
 
@@ -85,12 +86,18 @@ export function loadAndValidatePublicConfig(
   const manifestDocument = manifestLoad.document
   const manifestIssues = validateConfigSetManifest(manifestDocument, schemas)
   if (manifestIssues.length > 0) return { ok: false, issues: manifestIssues }
-  const manifest = manifestDocument.value as { parameters: string; materials: string[] }
+  const manifest = manifestDocument.value as {
+    parameters: string
+    tags?: string
+    materials: string[]
+  }
   const parametersLoad = loadDocument(projectRoot, manifest.parameters)
+  const tagsLoad =
+    manifest.tags === undefined ? undefined : loadDocument(projectRoot, manifest.tags)
   const materialLoads = manifest.materials.map((path) =>
     loadDocument(projectRoot, path),
   )
-  const loadIssues = [parametersLoad, ...materialLoads].flatMap((result) =>
+  const loadIssues = [parametersLoad, ...(tagsLoad === undefined ? [] : [tagsLoad]), ...materialLoads].flatMap((result) =>
     result.ok ? [] : [result.issue],
   )
   if (loadIssues.length > 0) return { ok: false, issues: loadIssues }
@@ -98,6 +105,7 @@ export function loadAndValidatePublicConfig(
   const raw: RawConfigSet = {
     configSet: manifestDocument,
     parameters: parametersLoad.document,
+    ...(tagsLoad?.ok === true ? { tags: tagsLoad.document } : {}),
     materials: materialLoads.map((result) => {
       if (!result.ok) throw new Error('unreachable')
       return result.document

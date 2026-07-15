@@ -40,6 +40,13 @@ export type DomainEvent =
       currentVolume: number
     }>
   | Readonly<{
+      type: 'PearlInteractionStarted'
+      tick: number
+      interactionId: string
+      pearlAId: string
+      pearlBId: string
+    }>
+  | Readonly<{
       type: 'LossWarningChanged'
       tick: number
       previousLevel: LossWarningLevel

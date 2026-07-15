@@ -32,6 +32,10 @@
     "collector": {
       "type": "string",
       "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
+    },
+    "interactions": {
+      "type": "string",
+      "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
     }
   },
   "additionalProperties": false

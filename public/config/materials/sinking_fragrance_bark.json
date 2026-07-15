@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "sinking_fragrance_bark",
+  "nameZh": "沉香皮",
+  "appearancePath": "/assets/materials/sinking_fragrance_bark.png",
+  "pearlColor": "#C98A48",
+  "targetPearlCount": 300,
+  "compositionMapPath": "/assets/masks/sinking_fragrance_bark-components.png",
+  "intrinsicTags": {
+    "medicinalProperty": [{ "tagId": "warm_moist", "strength": 100 }],
+    "efficacyClue": [{ "tagId": "settle_spirit", "strength": 100 }],
+    "reactionTrait": [{ "tagId": "settling", "strength": 100 }],
+    "risk": [{ "tagId": "smoke_poison", "strength": 100 }]
+  }
+}

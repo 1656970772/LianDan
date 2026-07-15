@@ -89,6 +89,12 @@ export type PearlShieldActivationDelta = Readonly<{
   pearlId: PearlId
 }>
 
+export type PearlInteractionDelta = Readonly<{
+  interactionId: InteractionProfileId
+  pearlAId: PearlId
+  pearlBId: PearlId
+}>
+
 export type SimulationDelta = Readonly<{
   tick: number
   dissolutions: readonly DissolutionDelta[]
@@ -99,6 +105,7 @@ export type SimulationDelta = Readonly<{
   inheritedLosses: readonly InheritedLossDelta[]
   materialVolumeChanges?: readonly MaterialVolumeChangeDelta[]
   shieldActivations?: readonly PearlShieldActivationDelta[]
+  interactions?: readonly PearlInteractionDelta[]
 }>
 
 export type SimulationDeltaError =
