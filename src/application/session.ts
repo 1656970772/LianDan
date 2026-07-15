@@ -7,12 +7,14 @@ import {
   settleRequestedCompletion,
   stopSpraying,
   validateRuleCommandPayload,
+  type DomainEvent,
   type DomainState,
   type PrototypeRules,
   type RuleCommand,
 } from '../domain/index.ts'
 import {
   commitSimulationDeltaCandidate,
+  resolvePearlTerminalOutcome,
   type SimulationDelta,
 } from '../simulation/index.ts'
 import {
@@ -107,6 +109,63 @@ function emptySimulationDelta(tick: number): SimulationDelta {
     naturalLosses: [],
     inheritedLosses: [],
   }
+}
+
+const TERMINAL_EVENT_TYPE = Object.freeze({
+  caught: 'PearlCaught',
+  missed: 'PearlMissed',
+  burned: 'PearlBurned',
+} as const)
+
+function createDomainEvents(
+  tick: number,
+  before: DomainState,
+  after: DomainState,
+  delta: SimulationDelta,
+): readonly DomainEvent[] {
+  const events: DomainEvent[] = []
+  const existingMaterials = new Set(
+    before.materialInstances.map((instance) => instance.materialInstanceId),
+  )
+  for (const instance of after.materialInstances) {
+    if (existingMaterials.has(instance.materialInstanceId)) continue
+    events.push({
+      type: 'MaterialAdded',
+      tick,
+      materialInstanceId: instance.materialInstanceId,
+      materialDefinitionId: instance.materialDefinitionId,
+      inventoryBatchId: instance.inventoryBatchId,
+      initialVolume: instance.initialVolume,
+    })
+  }
+
+  for (const birth of [...delta.births].sort((left, right) =>
+    left.pearlId.localeCompare(right.pearlId),
+  )) {
+    events.push({ type: 'PearlBorn', tick, ...birth })
+  }
+
+  const terminalCandidates = new Map<string, Array<'caught' | 'missed' | 'burned'>>()
+  for (const terminal of delta.terminalOutcomes) {
+    if (before.ledger.terminalPearls[terminal.pearlId] !== undefined) continue
+    const candidates = terminalCandidates.get(terminal.pearlId) ?? []
+    candidates.push(terminal.outcome)
+    terminalCandidates.set(terminal.pearlId, candidates)
+  }
+  for (const pearlId of [...terminalCandidates.keys()].sort()) {
+    const outcome = resolvePearlTerminalOutcome(terminalCandidates.get(pearlId)!)
+    if (outcome !== null) {
+      events.push({ type: TERMINAL_EVENT_TYPE[outcome], tick, pearlId })
+    }
+  }
+
+  if (!deriveCanFinish(before) && deriveCanFinish(after)) {
+    events.push({ type: 'CanFinish', tick })
+  }
+  if (before.status !== 'completed' && after.status === 'completed') {
+    events.push({ type: 'ExtractionCompleted', tick })
+  }
+  return events
 }
 
 function hasValidRuntimePayload(entry: InputLogEntry): boolean {
@@ -602,6 +661,7 @@ export class ExtractionApplication {
     const enteredWithTerminalState = isTerminal(this.#domainState)
     let preparedMaterialAdditions: readonly PreparedMaterialAddition[] = []
     let phase8Committed = false
+    let committedDelta = emptySimulationDelta(tick)
     this.#mode = 'phase'
 
     try {
@@ -616,6 +676,7 @@ export class ExtractionApplication {
           const committed = commitSimulationDeltaCandidate(this.#domainState, delta)
           if (!committed.ok) throw new Error(committed.error)
           this.#domainState = committed.state
+          committedDelta = delta
           phase8Committed = true
         }
         if (phase === 10 && !enteredWithTerminalState && isTerminal(this.#domainState)) {
@@ -629,6 +690,7 @@ export class ExtractionApplication {
           this.#domainState = settleRequestedCompletion(this.#domainState)
         }
       }
+      if (phase8Committed) hooks.beforeTickFinalized?.()
     } catch (error) {
       this.#restorePreparedTickSnapshot(snapshot)
       throw error
@@ -642,6 +704,12 @@ export class ExtractionApplication {
         tick,
         state: this.#domainState,
         readModel: this.getReadModel(),
+        events: createDomainEvents(
+          tick,
+          snapshot.domainState,
+          this.#domainState,
+          committedDelta,
+        ),
       })
     }
   }

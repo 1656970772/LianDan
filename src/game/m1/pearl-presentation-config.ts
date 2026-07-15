@@ -1,18 +1,12 @@
 import type { M1ScenarioMetadata } from './contracts.ts'
+import {
+  DROPLET_GEOMETRY,
+  type DropletGeometryConfig,
+} from '../presentation/droplet-config.ts'
 
 export type M1PearlRenderer = 'droplet' | 'circle-proxy'
 
-export type M1DropletPresentationConfig = Readonly<{
-  heightScale: number
-  halfWidthScale: number
-  shoulderYScale: number
-  tipControlXScale: number
-  tipControlYScale: number
-  upperSideControlYScale: number
-  bottomControlXScale: number
-  bottomControlYScale: number
-  curveSegmentsPerSection: number
-}>
+export type M1DropletPresentationConfig = DropletGeometryConfig
 
 export type M1PearlPresentation = Readonly<{
   renderer: M1PearlRenderer
@@ -36,18 +30,6 @@ export type M1PearlPresentation = Readonly<{
   }>
   droplet: M1DropletPresentationConfig
 }>
-
-const DROPLET_GEOMETRY: M1DropletPresentationConfig = Object.freeze({
-  heightScale: 2,
-  halfWidthScale: 0.78,
-  shoulderYScale: 0.22,
-  tipControlXScale: 0.1,
-  tipControlYScale: -0.72,
-  upperSideControlYScale: -0.25,
-  bottomControlXScale: 0.44,
-  bottomControlYScale: 0.72,
-  curveSegmentsPerSection: 14,
-})
 
 const TECHNICAL_PROBE_PRESENTATION: M1PearlPresentation = Object.freeze({
   renderer: 'droplet',

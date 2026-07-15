@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liandan.local/schemas/config/m2-config-set.schema.json",
+  "title": "M2 单材料闭环配置清单",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "baseConfigSet",
+    "prototype",
+    "fireSources",
+    "pearlTypes",
+    "collector"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "baseConfigSet": {
+      "type": "string",
+      "pattern": "^/config/[a-z0-9][a-z0-9-]*\\.json$"
+    },
+    "prototype": {
+      "type": "string",
+      "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
+    },
+    "fireSources": {
+      "type": "string",
+      "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
+    },
+    "pearlTypes": {
+      "type": "string",
+      "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
+    },
+    "collector": {
+      "type": "string",
+      "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
+    }
+  },
+  "additionalProperties": false
+}

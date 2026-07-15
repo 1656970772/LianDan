@@ -288,6 +288,76 @@ describe('SimulationDelta 原子提交', () => {
     expect(result.state.ledger.naturalLossVolume).toBe(1)
   })
 
+  it('大体积超扣不能被相对舍入容差吞掉，且候选保持原子拒绝', () => {
+    const materialState: DomainState = {
+      ...extractingState(),
+      materialInstances: [
+        {
+          ...extractingState().materialInstances[0]!,
+          initialVolume: 1e12,
+          remainingVolume: 1e12,
+        },
+      ],
+    }
+    const materialOverdraw = commitSimulationDeltaCandidate(
+      materialState,
+      emptyDelta({
+        dissolutions: [
+          {
+            materialDefinitionId: 'material.herb',
+            materialInstanceId: 'material-instance-1',
+            pearlType: 'medicinalLiquid',
+            volume: 1e12 + 500,
+          },
+        ],
+      }),
+    )
+
+    expect(materialOverdraw).toMatchObject({
+      ok: false,
+      error: 'SIM_DELTA_NEGATIVE_VOLUME',
+    })
+    expect(materialOverdraw.state).toBe(materialState)
+    expect(materialState.materialInstances[0]?.remainingVolume).toBe(1e12)
+
+    const pearlState: DomainState = {
+      ...materialState,
+      ledger: {
+        ...materialState.ledger,
+        pearlVolumes: { p: 1e12 },
+        pearlSources: {
+          p: {
+            sourceMaterialDefinitionId: 'material.herb',
+            sourceMaterialInstanceId: 'material-instance-1',
+            pearlType: 'medicinalLiquid',
+          },
+        },
+      },
+    }
+    const pearlOverdraw = commitSimulationDeltaCandidate(
+      pearlState,
+      emptyDelta({
+        naturalLosses: [
+          {
+            sourceKind: 'pearl',
+            stableEntityId: 'pearl:p',
+            pearlId: 'p',
+            volume: 1e12 + 500,
+          },
+        ],
+        terminalOutcomes: [{ pearlId: 'p', outcome: 'burned' }],
+      }),
+    )
+
+    expect(pearlOverdraw).toMatchObject({
+      ok: false,
+      error: 'SIM_DELTA_NEGATIVE_VOLUME',
+    })
+    expect(pearlOverdraw.state).toBe(pearlState)
+    expect(pearlState.ledger.pearlVolumes.p).toBe(1e12)
+    expect(pearlState.ledger.naturalLossVolume).toBe(0)
+  })
+
   it('newborn 不得在出生 tick 进入 volumeChanges', () => {
     const original = extractingState()
     const result = commitSimulationDeltaCandidate(

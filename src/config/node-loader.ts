@@ -1,8 +1,22 @@
 import { readFileSync } from 'node:fs'
 import { isAbsolute, resolve, sep } from 'node:path'
 
-import { configIssue } from './errors'
-import type { ConfigSchemaBundle, JsonSchema, RawConfigSet } from './model'
+import { PNG } from 'pngjs'
+
+import {
+  canonicalizeCompositionMap,
+  isolateDecodedCompositionMap,
+  validateCompositionMap,
+  validateCompositionPngHeader,
+} from './assets'
+import { configIssue, type ConfigIssue } from './errors'
+import type {
+  ConfigSchemaBundle,
+  DecodedCompositionMap,
+  JsonSchema,
+  NormalizedConfig,
+  RawConfigSet,
+} from './model'
 import { parseConfigJsonDocument, parseStrictJson } from './strict-json'
 import {
   validateAndNormalizeConfigSet,
@@ -61,9 +75,11 @@ function loadDocument(
   }
 }
 
-export function loadAndValidatePublicConfig(projectRoot: string): ConfigValidationResult {
+export function loadAndValidatePublicConfig(
+  projectRoot: string,
+  configSetPath = '/config/config-set.json',
+): ConfigValidationResult {
   const schemas = loadConfigSchemaBundle(projectRoot)
-  const configSetPath = '/config/config-set.json'
   const manifestLoad = loadDocument(projectRoot, configSetPath)
   if (!manifestLoad.ok) return { ok: false, issues: [manifestLoad.issue] }
   const manifestDocument = manifestLoad.document
@@ -88,4 +104,68 @@ export function loadAndValidatePublicConfig(projectRoot: string): ConfigValidati
     }),
   }
   return validateAndNormalizeConfigSet(raw, schemas)
+}
+
+export type NodeConfigWithAssetsLoadResult =
+  | Readonly<{
+      ok: true
+      config: NormalizedConfig
+      compositionMaps: readonly DecodedCompositionMap[]
+    }>
+  | Readonly<{ ok: false; issues: readonly ConfigIssue[] }>
+
+export function loadAndValidatePublicConfigWithAssets(
+  projectRoot: string,
+  configSetPath = '/config/config-set.json',
+): NodeConfigWithAssetsLoadResult {
+  const configResult = loadAndValidatePublicConfig(projectRoot, configSetPath)
+  if (!configResult.ok) return configResult
+
+  const maps: DecodedCompositionMap[] = []
+  const issues: ConfigIssue[] = []
+  for (const material of configResult.config.materials) {
+    const filePath = material.compositionMapPath
+    let bytes: Uint8Array
+    try {
+      bytes = new Uint8Array(readFileSync(resolvePublicUrl(projectRoot, filePath)))
+    } catch {
+      issues.push(
+        configIssue('CONFIG_ASSET_NOT_FOUND', filePath, '', '已登记的成分图文件不存在'),
+      )
+      continue
+    }
+    const headerIssues = validateCompositionPngHeader(filePath, bytes)
+    if (headerIssues.length > 0) {
+      issues.push(...headerIssues)
+      continue
+    }
+    try {
+      const decoded = PNG.sync.read(Buffer.from(bytes))
+      const map = canonicalizeCompositionMap({
+        filePath,
+        width: decoded.width,
+        height: decoded.height,
+        rgba: Uint8Array.from(decoded.data),
+      })
+      const mapIssues = validateCompositionMap(map)
+      if (mapIssues.length > 0) issues.push(...mapIssues)
+      else maps.push(map)
+    } catch {
+      issues.push(
+        configIssue(
+          'CONFIG_ASSET_INVALID_PNG',
+          filePath,
+          '',
+          '已登记的成分图 PNG 解码失败',
+        ),
+      )
+    }
+  }
+  return issues.length > 0
+    ? { ok: false, issues }
+    : {
+        ok: true,
+        config: configResult.config,
+        compositionMaps: Object.freeze(maps.map(isolateDecodedCompositionMap)),
+      }
 }

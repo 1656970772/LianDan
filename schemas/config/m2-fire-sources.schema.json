@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liandan.local/schemas/config/m2-fire-sources.schema.json",
+  "title": "M2 火种配置",
+  "type": "object",
+  "required": ["schemaVersion", "fireSources"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "fireSources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["id", "nameZh", "origin", "halfAngleDegrees", "minWidth", "maxWidth"],
+        "properties": {
+          "id": { "$ref": "#/$defs/stableId" },
+          "nameZh": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "origin": { "$ref": "#/$defs/point" },
+          "halfAngleDegrees": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 90
+          },
+          "minWidth": { "type": "number", "exclusiveMinimum": 0, "maximum": 4096 },
+          "maxWidth": { "type": "number", "exclusiveMinimum": 0, "maximum": 4096 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "point": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 8192 },
+        "y": { "type": "number", "minimum": 0, "maximum": 8192 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

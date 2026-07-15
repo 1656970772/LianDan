@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "seed": 20260715,
+  "logicalWidth": 1600,
+  "logicalHeight": 900,
+  "materialPlacement": {
+    "centerX": 600,
+    "centerY": 300,
+    "size": 180,
+    "offsetPerInstance": {
+      "x": 120,
+      "y": 0
+    },
+    "rotationDegreesPerInstance": 2
+  },
+  "availableFireSourceIds": [
+    "basic-fire"
+  ],
+  "initialFireSize": 32,
+  "fireSizeWheelStep": 4,
+  "initialFireDirection": {
+    "x": 0,
+    "y": -1
+  },
+  "theme": {
+    "colors": {
+      "background": "#12100E",
+      "surface": "#201C18",
+      "surfaceRaised": "#2C2620",
+      "border": "#594B3D",
+      "text": "#F4EBDD",
+      "muted": "#B8AA98",
+      "accent": "#D19A45",
+      "danger": "#C65D4B",
+      "focus": "#F2C66D"
+    },
+    "radius": 8
+  },
+  "inventoryBatches": [
+    {
+      "batchId": "prototype-herb-batch",
+      "materialDefinitionId": "prototype-herb",
+      "servings": 3
+    }
+  ]
+}

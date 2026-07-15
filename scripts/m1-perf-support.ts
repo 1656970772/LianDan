@@ -258,6 +258,7 @@ export function resolveM1RunTiming(
 
 export function buildM1ScenarioUrl(baseUrl: string, scenarioId: string): string {
   const url = new URL('/', baseUrl)
+  url.searchParams.set('mode', 'technical')
   url.searchParams.set('scenario', scenarioId)
   url.searchParams.set('overlay', 'none')
   return url.toString()

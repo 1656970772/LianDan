@@ -673,6 +673,101 @@ describe('权威 tick phase 与原子账本提交', () => {
     expect(rejected.getDomainState().lastCommittedTick).toBe(-1)
   })
 
+  it('phase 10 只发布已提交的材料、出生、接取、可结束与完成语义事件', () => {
+    const app = new ExtractionApplication(prototypeRules)
+    const published: Array<Readonly<{ tick: number; types: readonly string[] }>> = []
+    const runTick = (delta: SimulationDelta): void => {
+      const boundary = app.beforePhase0(app.getNextTick())
+      expect(boundary).toMatchObject({ accepted: true, canAdvance: true })
+      app.runPreparedTick({
+        buildSimulationDelta: () => delta,
+        onTickCommitted(commit) {
+          published.push({
+            tick: commit.tick,
+            types: commit.events.map((event) => event.type),
+          })
+        },
+      })
+    }
+
+    app.captureRuleCommand({
+      targetTick: 0,
+      type: 'PreselectMaterial',
+      payload: { inventoryBatchId: 'batch.herb' },
+    })
+    app.captureRuleCommand({
+      targetTick: 0,
+      type: 'AddSelectedMaterial',
+      payload: {},
+    })
+    runTick({
+      tick: 0,
+      dissolutions: [],
+      births: [],
+      pearlVolumeChanges: [],
+      terminalOutcomes: [],
+      naturalLosses: [],
+      inheritedLosses: [],
+    })
+
+    runTick({
+      tick: 1,
+      dissolutions: [
+        {
+          materialDefinitionId: 'material.herb',
+          materialInstanceId: 'material-instance-1',
+          pearlType: 'medicinalLiquid',
+          volume: 10,
+        },
+      ],
+      births: [
+        {
+          pearlId: 'pearl-1',
+          sourceMaterialDefinitionId: 'material.herb',
+          sourceMaterialInstanceId: 'material-instance-1',
+          pearlType: 'medicinalLiquid',
+          volume: 10,
+        },
+      ],
+      pearlVolumeChanges: [],
+      terminalOutcomes: [],
+      naturalLosses: [],
+      inheritedLosses: [],
+    })
+
+    runTick({
+      tick: 2,
+      dissolutions: [],
+      births: [],
+      pearlVolumeChanges: [],
+      terminalOutcomes: [{ pearlId: 'pearl-1', outcome: 'caught' }],
+      naturalLosses: [],
+      inheritedLosses: [],
+    })
+
+    app.captureRuleCommand({
+      targetTick: 3,
+      type: 'RequestFinish',
+      payload: {},
+    })
+    runTick({
+      tick: 3,
+      dissolutions: [],
+      births: [],
+      pearlVolumeChanges: [],
+      terminalOutcomes: [],
+      naturalLosses: [],
+      inheritedLosses: [],
+    })
+
+    expect(published).toEqual([
+      { tick: 0, types: ['MaterialAdded'] },
+      { tick: 1, types: ['PearlBorn'] },
+      { tick: 2, types: ['PearlCaught', 'CanFinish'] },
+      { tick: 3, types: ['ExtractionCompleted'] },
+    ])
+  })
+
   it('phase 0 投药回调抛错时回滚 tick 快照，并可在同一 prepared boundary 完整重试一次', () => {
     const app = new ExtractionApplication(prototypeRules)
     app.captureRuleCommand({

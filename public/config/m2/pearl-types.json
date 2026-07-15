@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "pearlTypes": [
+    {
+      "id": "medicinal-liquid",
+      "pearlType": "medicinalLiquid",
+      "standardRadius": 24,
+      "spawnVelocity": {
+        "minX": -45,
+        "maxX": 45,
+        "minY": 60,
+        "maxY": 120
+      },
+      "gravity": 350,
+      "drift": 12,
+      "maxSpeed": 500,
+      "materialRestitution": 0.25
+    }
+  ]
+}

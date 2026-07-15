@@ -4,6 +4,7 @@ export {
   validateRuleCommandPayload,
 } from './commands.ts'
 export type { EmptyPayload, RuleCommand, RuleCommandType } from './commands.ts'
+export type { DomainEvent } from './events.ts'
 export {
   applyRuleCommand,
   addMaterialServingFromBatch,

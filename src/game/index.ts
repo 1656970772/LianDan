@@ -12,3 +12,9 @@ export {
   type M1Snapshot,
 } from './m1/contracts.ts'
 export type { M1PerformanceSample } from './m1/performance-metrics.ts'
+export {
+  createM2Game,
+  type CreateM2GameOptions,
+  type M2GameHandle,
+} from './createM2Game.ts'
+export type { M2BrowserApi, M2Snapshot } from './extraction/contracts.ts'

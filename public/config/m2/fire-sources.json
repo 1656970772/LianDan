@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "fireSources": [
+    {
+      "id": "basic-fire",
+      "nameZh": "凡火",
+      "origin": {
+        "x": 800,
+        "y": 700
+      },
+      "halfAngleDegrees": 70,
+      "minWidth": 24,
+      "maxWidth": 280
+    }
+  ]
+}

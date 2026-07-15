@@ -1,21 +1,31 @@
 import {
   loadBrowserConfig,
   loadBrowserM1FireFlowFixture,
+  loadBrowserM2GameplayConfig,
   validateM1RuntimeCompatibility,
   type ConfigIssue,
+  type NormalizedM2Config,
 } from './config/index.ts'
 import {
   createM1Game,
+  createM2Game,
   GAME_LOGICAL_HEIGHT,
   GAME_LOGICAL_WIDTH,
   M1_OVERLAY_MODES,
   type M1BrowserApi,
   type M1GameHandle,
   type M1OverlayMode,
+  type M2BrowserApi,
+  type M2GameHandle,
 } from './game/index.ts'
 import { M1_BEHAVIORS, listM1Scenarios } from './game/m1/scenarios.ts'
 import './style.css'
-import { createM1Workbench, renderConfigError } from './ui/index.ts'
+import {
+  createM1Workbench,
+  createM2Workbench,
+  renderConfigError,
+  type M2WorkbenchModel,
+} from './ui/index.ts'
 
 function requireAppRoot(): HTMLElement {
   const element = document.querySelector<HTMLElement>('#app')
@@ -39,17 +49,151 @@ function readOverlayMode(search: URLSearchParams): M1OverlayMode {
     : 'fire'
 }
 
-function writeRuntimeQuery(scenarioId: string, overlayMode: M1OverlayMode): void {
+function writeM1RuntimeQuery(
+  scenarioId: string,
+  overlayMode: M1OverlayMode,
+): void {
   const url = new URL(window.location.href)
+  url.searchParams.set('mode', 'technical')
   url.searchParams.set('scenario', scenarioId)
   url.searchParams.set('overlay', overlayMode)
   window.history.replaceState(null, '', url)
 }
 
-const app = requireAppRoot()
-document.body.dataset.appState = 'loading'
+function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
+  const materialById = new Map(
+    config.base.materials.map((material) => [material.id, material] as const),
+  )
+  return {
+    sessionId: 'session-000001',
+    status: 'ready',
+    tick: 0,
+    fireSources: config.gameplay.fireSources.map((source) => ({
+      id: source.id,
+      nameZh: source.nameZh,
+      descriptionZh: '稳定、易控制的基础火种。',
+    })),
+    equippedFireSourceId: null,
+    fireSize: config.gameplay.prototype.initialFireSize,
+    fireSizeRange: {
+      min: 0,
+      max: 100,
+    },
+    isSpraying: false,
+    canFinish: false,
+    paused: false,
+    restartConfirmation: 'closed',
+    inventory: config.gameplay.prototype.inventoryBatches.map((batch) => {
+      const material = materialById.get(batch.materialDefinitionId)
+      return {
+        batchId: batch.batchId,
+        materialDefinitionId: batch.materialDefinitionId,
+        nameZh: material?.nameZh ?? batch.materialDefinitionId,
+        servings: batch.servings,
+        ...(material?.appearancePath === undefined
+          ? {}
+          : { imagePath: material.appearancePath }),
+      }
+    }),
+    selectedMaterialBatchId: null,
+    materialRemaining: 0,
+    activePearlCount: 0,
+    caughtPearlCount: 0,
+  }
+}
 
-async function bootstrap(): Promise<void> {
+async function bootstrapM2(app: HTMLElement): Promise<void> {
+  const loaded = await loadBrowserM2GameplayConfig()
+  if (!loaded.ok) {
+    renderConfigError(app, loaded.issues)
+    return
+  }
+
+  let gameHandle: M2GameHandle | null = null
+  const workbench = createM2Workbench({
+    root: app,
+    initialModel: initialM2WorkbenchModel(loaded.config),
+    theme: {
+      background: loaded.config.gameplay.prototype.theme.colors.background,
+      surface: loaded.config.gameplay.prototype.theme.colors.surface,
+      surfaceRaised:
+        loaded.config.gameplay.prototype.theme.colors.surfaceRaised,
+      border: loaded.config.gameplay.prototype.theme.colors.border,
+      text: loaded.config.gameplay.prototype.theme.colors.text,
+      muted: loaded.config.gameplay.prototype.theme.colors.muted,
+      accent: loaded.config.gameplay.prototype.theme.colors.accent,
+      accentInk: loaded.config.gameplay.prototype.theme.colors.surface,
+      radius: `${loaded.config.gameplay.prototype.theme.radius}px`,
+    },
+    onPreselectMaterial: (batchId) => gameHandle?.preselectMaterial(batchId),
+    onCancelMaterialSelection: () => gameHandle?.cancelMaterialSelection(),
+    onAddSelectedMaterial: () => gameHandle?.addSelectedMaterial(),
+    onSelectFireSource: (fireSourceId) =>
+      gameHandle?.selectFireSource(fireSourceId),
+    onFireSizeChange: (fireSize) => gameHandle?.setFireSize(fireSize),
+    onPause: () => gameHandle?.pause(),
+    onResume: () => gameHandle?.resume(),
+    onRequestRestart: () => gameHandle?.requestRestart(),
+    onConfirmRestart: () => gameHandle?.confirmRestart(),
+    onCancelRestart: () => gameHandle?.cancelRestart(),
+    onRequestFinish: () => gameHandle?.requestFinish(),
+    onAgain: () => gameHandle?.again(),
+  })
+  workbench.gameHost.dataset.simulationContentFingerprint =
+    loaded.simulationContentFingerprint
+
+  document.body.dataset.appMode = 'm2'
+  document.body.dataset.appState = 'game-loading'
+  gameHandle = createM2Game({
+    parent: workbench.gameHost,
+    inputStage: workbench.stage,
+    config: loaded.config,
+    compositionMaps: loaded.compositionMaps,
+    simulationContentFingerprint: loaded.simulationContentFingerprint,
+    onReady(metadata) {
+      workbench.gameHost.dataset.phaserVersion = metadata.phaserVersion
+      document.body.dataset.appState = 'ready'
+      if (gameHandle !== null) workbench.update(gameHandle.getSnapshot())
+    },
+    onSnapshot(snapshot) {
+      workbench.update(snapshot)
+    },
+  })
+  workbench.update(gameHandle.getSnapshot())
+
+  const browserApi: M2BrowserApi = Object.freeze({
+    getSnapshot: () => gameHandle!.getSnapshot(),
+    selectFireSource: (fireSourceId: string) =>
+      gameHandle!.selectFireSource(fireSourceId),
+    preselectMaterial: (inventoryBatchId: string) =>
+      gameHandle!.preselectMaterial(inventoryBatchId),
+    cancelMaterialSelection: () => gameHandle!.cancelMaterialSelection(),
+    addSelectedMaterial: () => gameHandle!.addSelectedMaterial(),
+    setFireSize: (size: number) => gameHandle!.setFireSize(size),
+    requestFinish: () => gameHandle!.requestFinish(),
+    pause: () => gameHandle!.pause(),
+    resume: () => gameHandle!.resume(),
+    requestRestart: () => gameHandle!.requestRestart(),
+    cancelRestart: () => gameHandle!.cancelRestart(),
+    confirmRestart: () => gameHandle!.confirmRestart(),
+    again: () => gameHandle!.again(),
+  })
+  window.__LIANDAN_M2__ = browserApi
+
+  let destroyed = false
+  const destroy = (): void => {
+    if (destroyed) return
+    destroyed = true
+    window.removeEventListener('pagehide', destroy)
+    if (window.__LIANDAN_M2__ === browserApi) delete window.__LIANDAN_M2__
+    workbench.destroy()
+    gameHandle?.destroy()
+    gameHandle = null
+  }
+  window.addEventListener('pagehide', destroy)
+}
+
+async function bootstrapM1(app: HTMLElement): Promise<void> {
   const [loadedConfig, loadedFixture] = await Promise.all([
     loadBrowserConfig(),
     loadBrowserM1FireFlowFixture(),
@@ -97,16 +241,17 @@ async function bootstrap(): Promise<void> {
       currentScenarioId = scenarioId
       gameHandle?.selectScenario(scenarioId)
       if (gameHandle !== null) workbench.update(gameHandle.getSnapshot())
-      writeRuntimeQuery(currentScenarioId, currentOverlayMode)
+      writeM1RuntimeQuery(currentScenarioId, currentOverlayMode)
     },
     onOverlayChange(mode) {
       currentOverlayMode = mode
       gameHandle?.setOverlayMode(mode)
       if (gameHandle !== null) workbench.update(gameHandle.getSnapshot())
-      writeRuntimeQuery(currentScenarioId, currentOverlayMode)
+      writeM1RuntimeQuery(currentScenarioId, currentOverlayMode)
     },
   })
 
+  document.body.dataset.appMode = 'technical'
   document.body.dataset.appState = 'game-loading'
   gameHandle = createM1Game({
     parent: workbench.gameHost,
@@ -135,7 +280,7 @@ async function bootstrap(): Promise<void> {
       currentOverlayMode = mode
       gameHandle!.setOverlayMode(mode)
       workbench.update(gameHandle!.getSnapshot())
-      writeRuntimeQuery(currentScenarioId, currentOverlayMode)
+      writeM1RuntimeQuery(currentScenarioId, currentOverlayMode)
     },
     startSample: (durationMilliseconds: number) =>
       gameHandle!.startSample(durationMilliseconds),
@@ -153,6 +298,15 @@ async function bootstrap(): Promise<void> {
     gameHandle = null
   }
   window.addEventListener('pagehide', destroy)
+}
+
+const app = requireAppRoot()
+document.body.dataset.appState = 'loading'
+
+const bootstrap = async (): Promise<void> => {
+  const mode = new URLSearchParams(window.location.search).get('mode')
+  if (mode === 'technical') await bootstrapM1(app)
+  else await bootstrapM2(app)
 }
 
 void bootstrap().catch((error: unknown) => {

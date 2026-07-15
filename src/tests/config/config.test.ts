@@ -65,6 +65,10 @@ describe('validateAndNormalizeConfigSet', () => {
         mergeRate: 0.15,
         fullObstacleThreshold: 0.95,
       },
+      dissolution: {
+        volumePerTick: 0.18,
+        exposureProbeDistance: 18,
+      },
     })
     expect(config.materials[0]?.targetPearlCount).toBe(300)
     expect(Object.isFrozen(config)).toBe(true)
@@ -102,6 +106,12 @@ describe('validateAndNormalizeConfigSet', () => {
         Record<string, unknown>
       >
     )
+    const dissolutionProperties = (
+      parameterProperties.dissolution!.properties as Record<
+        string,
+        Record<string, unknown>
+      >
+    )
     simulationProperties.fixedStepHz!.default = 25
     simulationProperties.maxCatchUpSteps!.default = 7
     flowFieldProperties.gridColumns!.default = 64
@@ -113,6 +123,8 @@ describe('validateAndNormalizeConfigSet', () => {
     flowFieldProperties.partialObstaclePenalty!.default = 0.45
     flowFieldProperties.mergeRate!.default = 0.2
     flowFieldProperties.fullObstacleThreshold!.default = 0.9
+    dissolutionProperties.volumePerTick!.default = 0.25
+    dissolutionProperties.exposureProbeDistance!.default = 24
     materialProperties.targetPearlCount!.default = 450
 
     const result = validateAndNormalizeConfigSet(validRawConfigSet(), schemas)
@@ -133,6 +145,10 @@ describe('validateAndNormalizeConfigSet', () => {
             partialObstaclePenalty: 0.45,
             mergeRate: 0.2,
             fullObstacleThreshold: 0.9,
+          },
+          dissolution: {
+            volumePerTick: 0.25,
+            exposureProbeDistance: 24,
           },
         },
         materials: [{ targetPearlCount: 450 }],
@@ -161,6 +177,10 @@ describe('validateAndNormalizeConfigSet', () => {
         mergeRate: 0.3,
         fullObstacleThreshold: 0.85,
       },
+      dissolution: {
+        volumePerTick: 0.3,
+        exposureProbeDistance: 12,
+      },
     }
     raw.materials[0]!.value = {
       ...(raw.materials[0]!.value as object),
@@ -185,6 +205,10 @@ describe('validateAndNormalizeConfigSet', () => {
         partialObstaclePenalty: 0.25,
         mergeRate: 0.3,
         fullObstacleThreshold: 0.85,
+      },
+      dissolution: {
+        volumePerTick: 0.3,
+        exposureProbeDistance: 12,
       },
     })
     expect(config.materials[0]?.targetPearlCount).toBe(720)
@@ -245,6 +269,8 @@ describe('validateAndNormalizeConfigSet', () => {
     ['flowField', 'mergeRate', 1.01],
     ['flowField', 'fullObstacleThreshold', 0],
     ['flowField', 'fullObstacleThreshold', 1.01],
+    ['dissolution', 'volumePerTick', 0],
+    ['dissolution', 'exposureProbeDistance', -0.01],
   ] as const)(
     '拒绝越界 %s.%s=%s',
     (group, field, value) => {
@@ -267,7 +293,7 @@ describe('validateAndNormalizeConfigSet', () => {
     },
   )
 
-  it.each(['simulation', 'flowField'] as const)(
+  it.each(['simulation', 'flowField', 'dissolution'] as const)(
     '拒绝 %s 中的未知字段',
     (group) => {
       const raw = validRawConfigSet()
@@ -366,6 +392,34 @@ describe('validateAndNormalizeConfigSet', () => {
     expect(result).toMatchObject({
       ok: false,
       issues: [{ code: 'CONFIG_DUPLICATE_LOGICAL_KEY', fieldPath: '/id' }],
+    })
+  })
+
+  it('允许省略纯表现外观图，也会标准化合法外观图路径', () => {
+    const omitted = expectSuccess(validRawConfigSet())
+    expect(omitted.materials[0]).not.toHaveProperty('appearancePath')
+
+    const withAppearance = validRawConfigSet()
+    withAppearance.materials[0]!.value = {
+      ...(withAppearance.materials[0]!.value as object),
+      appearancePath: '/assets/materials/moon-leaf.png',
+    }
+    expect(expectSuccess(withAppearance).materials[0]?.appearancePath).toBe(
+      '/assets/materials/moon-leaf.png',
+    )
+  })
+
+  it('拒绝越出材料外观资源目录的 appearancePath', () => {
+    const raw = validRawConfigSet()
+    raw.materials[0]!.value = {
+      ...(raw.materials[0]!.value as object),
+      appearancePath: '/assets/masks/not-an-appearance.png',
+    }
+
+    const result = validateAndNormalizeConfigSet(raw, loadTestSchemaBundle())
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [{ filePath: '/config/materials/prototype-herb.json', fieldPath: '/appearancePath' }],
     })
   })
 })

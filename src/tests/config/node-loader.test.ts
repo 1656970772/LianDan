@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { loadAndValidatePublicConfig } from '../../config/node-loader'
+import { loadAndValidatePublicM2GameplayConfig } from '../../config/node-m2-gameplay-loader'
 
 const fixtureRoots: string[] = []
 
@@ -85,5 +86,36 @@ describe('loadAndValidatePublicConfig strict JSON boundary', () => {
         },
       ],
     })
+  })
+})
+
+describe('loadAndValidatePublicM2GameplayConfig', () => {
+  it('加载仓库正式 M2 配置并返回统一 fingerprint', async () => {
+    const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
+    const result = await loadAndValidatePublicM2GameplayConfig(projectRoot)
+
+    expect(result).toMatchObject({
+      ok: true,
+      config: {
+        base: { materials: [{ id: 'prototype-herb' }] },
+        gameplay: {
+          prototype: { fireSizeWheelStep: 4 },
+          pearlType: { pearlType: 'medicinalLiquid', materialRestitution: 0.25 },
+        },
+      },
+      compositionMaps: [
+        expect.objectContaining({
+          filePath: '/assets/masks/prototype-herb-components.png',
+        }),
+      ],
+      simulationContentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+    if (result.ok) {
+      expect(Object.isFrozen(result.compositionMaps)).toBe(true)
+      const map = result.compositionMaps[0]!
+      const original = map.rgba[0]!
+      map.rgba[0] = original ^ 0xff
+      expect(map.rgba[0]).toBe(original)
+    }
   })
 })

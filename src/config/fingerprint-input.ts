@@ -33,6 +33,11 @@ export function createSimulationFingerprintInput(
             fullObstacleThreshold:
               config.parameters.flowField.fullObstacleThreshold,
           },
+          dissolution: {
+            volumePerTick: config.parameters.dissolution.volumePerTick,
+            exposureProbeDistance:
+              config.parameters.dissolution.exposureProbeDistance,
+          },
         },
       },
       ...config.materials.map((material) => ({

@@ -3,6 +3,10 @@ import Phaser from 'phaser'
 import type { M1FireFlowFixture } from '../../config/m1-fire-flow-fixture.ts'
 import type { NormalizedConfig } from '../../config/model.ts'
 import type { FireFlowReadView } from '../../simulation/fire-flow/index.ts'
+import {
+  createDropletOutline,
+  drawDroplet,
+} from '../presentation/droplet.ts'
 import type { M1OverlayMode, M1Snapshot } from './contracts.ts'
 import {
   M1FireHeatField,
@@ -12,8 +16,6 @@ import { M1_FIRE_PRESENTATION_CONFIG } from './fire-presentation-config.ts'
 import { M1FirePresentation } from './fire-presentation.ts'
 import {
   resolveM1PearlPresentation,
-  type M1DropletPresentationConfig,
-  type M1PearlPresentation,
 } from './pearl-presentation-config.ts'
 import type { M1PerformanceSample } from './performance-metrics.ts'
 import { sampleM1FlowView } from './scenario-runtime.ts'
@@ -29,78 +31,6 @@ const COLD_SURFACE_COLOR = 0x20262c
 const COLD_CHAMBER_COLOR = 0x11161a
 const BORDER_COLOR = 0x47525b
 const SNAPSHOT_INTERVAL_MILLISECONDS = 200
-
-function createDropletOutline(
-  radius: number,
-  config: M1DropletPresentationConfig,
-): Phaser.Math.Vector2[] {
-  const halfHeight = (radius * config.heightScale) / 2
-  const tip = new Phaser.Math.Vector2(0, -halfHeight)
-  const shoulder = new Phaser.Math.Vector2(
-    radius * config.halfWidthScale,
-    radius * config.shoulderYScale,
-  )
-  const bottom = new Phaser.Math.Vector2(0, halfHeight)
-  const tipToShoulder = new Phaser.Curves.CubicBezier(
-    tip,
-    new Phaser.Math.Vector2(
-      radius * config.tipControlXScale,
-      radius * config.tipControlYScale,
-    ),
-    new Phaser.Math.Vector2(
-      radius * config.halfWidthScale,
-      radius * config.upperSideControlYScale,
-    ),
-    shoulder,
-  ).getPoints(config.curveSegmentsPerSection)
-  const shoulderToBottom = new Phaser.Curves.CubicBezier(
-    shoulder,
-    new Phaser.Math.Vector2(
-      radius * config.halfWidthScale,
-      radius * config.bottomControlYScale,
-    ),
-    new Phaser.Math.Vector2(radius * config.bottomControlXScale, halfHeight),
-    bottom,
-  ).getPoints(config.curveSegmentsPerSection)
-  const rightSide = [...tipToShoulder, ...shoulderToBottom.slice(1)]
-  const leftSide = rightSide
-    .slice(1, -1)
-    .reverse()
-    .map((point) => new Phaser.Math.Vector2(-point.x, point.y))
-
-  return [...rightSide, ...leftSide]
-}
-
-function drawDroplet(
-  graphics: Phaser.GameObjects.Graphics,
-  centerX: number,
-  centerY: number,
-  radius: number,
-  outline: Phaser.Math.Vector2[],
-  presentation: M1PearlPresentation,
-): void {
-  graphics.save()
-  graphics.translateCanvas(centerX, centerY)
-  graphics.fillStyle(presentation.fillColor, presentation.fillAlpha)
-  graphics.fillPoints(outline, true, true)
-  graphics.lineStyle(
-    presentation.outlineWidthPixels,
-    presentation.outlineColor,
-    presentation.outlineAlpha,
-  )
-  graphics.strokePoints(outline, true, true)
-  graphics.fillStyle(
-    presentation.highlight.color,
-    presentation.highlight.alpha,
-  )
-  graphics.fillEllipse(
-    radius * presentation.highlight.offsetXScale,
-    radius * presentation.highlight.offsetYScale,
-    radius * presentation.highlight.widthScale,
-    radius * presentation.highlight.heightScale,
-  )
-  graphics.restore()
-}
 
 export type M1TechnicalSceneMetadata = Readonly<{
   scene: 'm1-fire-flow'

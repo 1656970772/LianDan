@@ -1,4 +1,11 @@
 export { ExtractionApplication } from './session.ts'
+export { ExtractionRuntime } from './extraction-runtime.ts'
+export type {
+  ExtractionRuntimeOptions,
+  ExtractionRuntimeSnapshot,
+  ExtractionSimulationPhase,
+  ExtractionSimulationPort,
+} from './extraction-runtime.ts'
 export { FixedStepClock } from './fixed-step-clock.ts'
 export { TICK_PHASES, validateApplicationControlPayload } from './contracts.ts'
 export type {

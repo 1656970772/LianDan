@@ -17,7 +17,9 @@ async function openM1(
   scenarioId: string,
   overlayMode: M1OverlayMode = 'reachable',
 ): Promise<M1Snapshot> {
-  await page.goto(`/?scenario=${scenarioId}&overlay=${overlayMode}`)
+  await page.goto(
+    `/?mode=technical&scenario=${scenarioId}&overlay=${overlayMode}`,
+  )
   await expect(page.locator('body')).toHaveAttribute('data-app-state', 'ready')
   const snapshot = await page.evaluate(() => window.__LIANDAN_M1__!.getSnapshot())
   expect(snapshot.ready).toBe(true)
@@ -36,10 +38,28 @@ async function sampleInPage(page: Page, durationMilliseconds = 180): Promise<voi
 }
 
 test.describe('M1 火流技术场景', () => {
+  test('900×700 技术工作台保留自己的窄屏滚动规则', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 700 })
+    await openM1(page, 'pillar')
+
+    const layout = await page.evaluate(() => ({
+      appMode: document.body.dataset.appMode,
+      clientHeight: document.documentElement.clientHeight,
+      overflowY: getComputedStyle(document.body).overflowY,
+      scrollHeight: document.documentElement.scrollHeight,
+    }))
+    expect(layout).toMatchObject({
+      appMode: 'technical',
+      clientHeight: 700,
+      overflowY: 'auto',
+    })
+    expect(layout.scrollHeight).toBeGreaterThan(layout.clientHeight)
+  })
+
   test('真实首页默认展示可理解的动态火流，关闭后彻底停止展示层', async ({
     page,
   }) => {
-    await page.goto('/')
+    await page.goto('/?mode=technical')
     await expect(page.locator('body')).toHaveAttribute('data-app-state', 'ready')
 
     const canvas = page.locator('canvas[data-game="liandan"]')
@@ -85,7 +105,7 @@ test.describe('M1 火流技术场景', () => {
 
   test('减少动态效果偏好下首页提供静态火流且帧号稳定', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await page.goto('/')
+    await page.goto('/?mode=technical')
     await expect(page.locator('body')).toHaveAttribute('data-app-state', 'ready')
 
     const canvas = page.locator('canvas[data-game="liandan"]')
@@ -109,7 +129,7 @@ test.describe('M1 火流技术场景', () => {
       }),
     )
 
-    await page.goto('/')
+    await page.goto('/?mode=technical')
 
     await expect(page.locator('body')).toHaveAttribute(
       'data-app-state',

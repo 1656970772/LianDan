@@ -116,7 +116,7 @@ describe('M1 性能采样器纯函数', () => {
 
   it('用明确 URL 参数选择场景并关闭覆盖层', () => {
     expect(buildM1ScenarioUrl('http://127.0.0.1:4174', 'm1-2400')).toBe(
-      'http://127.0.0.1:4174/?scenario=m1-2400&overlay=none',
+      'http://127.0.0.1:4174/?mode=technical&scenario=m1-2400&overlay=none',
     )
   })
 

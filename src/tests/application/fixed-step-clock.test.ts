@@ -92,4 +92,25 @@ describe('FixedStepClock', () => {
       droppedTickCount: 0,
     })
   })
+
+  it('回调报告暂停后停止 catch-up，只计真实推进且不把暂停积压记为 dropped', () => {
+    const clock = new FixedStepClock(CLOCK_OPTIONS)
+    let callCount = 0
+    clock.frame(0, () => true)
+
+    const frame = clock.frame(1_000, () => {
+      callCount += 1
+      return callCount === 1
+    })
+
+    expect(callCount).toBe(2)
+    expect(frame).toMatchObject({
+      advancedTickCount: 1,
+      droppedTickCount: 0,
+    })
+    expect(clock.getMetrics()).toEqual({
+      totalAdvancedTickCount: 1,
+      droppedTickCount: 0,
+    })
+  })
 })

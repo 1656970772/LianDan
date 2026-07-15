@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { M1_FIRE_PRESENTATION_CONFIG } from '../../game/m1/fire-presentation-config.ts'
 import { M1FireHeatField } from '../../game/m1/fire-heat-field.ts'
 import type { M1FireParticleView } from '../../game/m1/fire-presentation.ts'
+import type { FireOcclusionInput } from '../../game/presentation/fire/fire-heat-field.ts'
 import type { FireFlowReadView } from '../../simulation/fire-flow/index.ts'
 
 function createPillarView(): FireFlowReadView {
@@ -197,6 +198,74 @@ function alphaAt(pixels: Uint8ClampedArray, width: number, x: number, y: number)
 }
 
 describe('M1 连续温度场火焰', () => {
+  it('快速出火前沿只显示喷口附近热场，推进后才显露远端火舌', () => {
+    const view = createOpenView()
+    const source = {
+      position: { x: 800, y: 700 },
+      direction: { x: 0, y: -1 },
+      width: 240,
+    }
+    const particles = createSingleCarrier(300)
+    const config = M1_FIRE_PRESENTATION_CONFIG.heatField
+    const nearField = new M1FireHeatField(config)
+    const nearFrame = nearField.render(view, particles, source, undefined, {
+      frontDistancePixels: 160,
+      frontFeatherPixels: 70,
+    })
+    const sourceX = Math.floor(source.position.x / config.pixelScale)
+    const sourceY = Math.floor((source.position.y - 20) / config.pixelScale)
+    const farX = Math.floor(800 / config.pixelScale)
+    const farY = Math.floor(300 / config.pixelScale)
+
+    expect(alphaAt(nearFrame.pixels, nearFrame.width, sourceX, sourceY)).toBeGreaterThan(0)
+    expect(alphaAt(nearFrame.pixels, nearFrame.width, farX, farY)).toBe(0)
+
+    const farField = new M1FireHeatField(config)
+    const farFrame = farField.render(view, particles, source, undefined, {
+      frontDistancePixels: 500,
+      frontFeatherPixels: 70,
+    })
+    expect(alphaAt(farFrame.pixels, farFrame.width, farX, farY)).toBeGreaterThan(0)
+  })
+
+  it('精确 coverage mask 只遮挡材料覆盖像素，不挖空同一粗流场格', () => {
+    const view = createOpenView()
+    const flowColumn = Math.floor(800 / view.cellSize)
+    const flowRow = Math.floor(450 / view.cellSize)
+    view.obstacle[flowRow * view.columns + flowColumn] = 1
+    const config = M1_FIRE_PRESENTATION_CONFIG.heatField
+    const centerX = Math.floor(800 / config.pixelScale)
+    const centerY = Math.floor(450 / config.pixelScale)
+    const coverage = new Uint8Array(config.width * config.height)
+    coverage[centerY * config.width + centerX] = 255
+    const occlusion = {
+      fullObstacleRects: [],
+      circles: {
+        count: 0,
+        x: new Float32Array(0),
+        y: new Float32Array(0),
+        radius: new Float32Array(0),
+        eligible: new Uint8Array(0),
+      },
+      circleRadiusScale: 1,
+      circleFeatherPixels: 0,
+      coverageMask: {
+        width: config.width,
+        height: config.height,
+        coverage,
+      },
+    } satisfies FireOcclusionInput
+    const field = new M1FireHeatField(config)
+    const frame = field.render(view, createSingleCarrier(450), {
+      position: { x: 800, y: 840 },
+      direction: { x: 0, y: -1 },
+      width: 240,
+    }, occlusion)
+
+    expect(alphaAt(frame.pixels, frame.width, centerX, centerY)).toBe(0)
+    expect(alphaAt(frame.pixels, frame.width, centerX + 1, centerY)).toBeGreaterThan(0)
+  })
+
   it('carrier 离喷口越远，高温峰值与高温宽度都明显衰减', () => {
     const source = {
       position: { x: 800, y: 840 },

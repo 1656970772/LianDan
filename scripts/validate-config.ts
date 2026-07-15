@@ -10,6 +10,7 @@ import {
   type M1FireFlowFixture,
 } from '../src/config/m1-fire-flow-fixture'
 import { loadAndValidatePublicConfig } from '../src/config/node-loader'
+import { loadAndValidatePublicM2GameplayConfig } from '../src/config/node-m2-gameplay-loader'
 import { parseStrictJson } from '../src/config/strict-json'
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -84,14 +85,28 @@ function validateM1Fixture(): boolean {
   return true
 }
 
-const result = loadAndValidatePublicConfig(projectRoot)
-if (!result.ok) {
-  printIssues(result.issues)
-  process.exitCode = 1
-} else {
-  console.log(
-    `配置校验通过：${result.config.materials.length} 份材料，standardPearlVolume=${result.config.parameters.standardPearlVolume}，slagUnitVolume=${result.config.parameters.slagUnitVolume}`,
-  )
+async function main(): Promise<void> {
+  const result = loadAndValidatePublicConfig(projectRoot)
+  if (!result.ok) {
+    printIssues(result.issues)
+    process.exitCode = 1
+  } else {
+    console.log(
+      `配置校验通过：${result.config.materials.length} 份材料，standardPearlVolume=${result.config.parameters.standardPearlVolume}，slagUnitVolume=${result.config.parameters.slagUnitVolume}`,
+    )
+  }
+
+  if (!validateM1Fixture()) process.exitCode = 1
+
+  const m2Result = await loadAndValidatePublicM2GameplayConfig(projectRoot)
+  if (!m2Result.ok) {
+    printIssues(m2Result.issues)
+    process.exitCode = 1
+  } else {
+    console.log(
+      `M2 gameplay 配置校验通过：${m2Result.config.gameplay.fireSources.length} 种火源，${m2Result.config.gameplay.prototype.inventoryBatches.length} 个库存批次，simulationContentFingerprint=${m2Result.simulationContentFingerprint}`,
+    )
+  }
 }
 
-if (!validateM1Fixture()) process.exitCode = 1
+void main()

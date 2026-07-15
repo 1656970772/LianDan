@@ -127,6 +127,27 @@
         }
       },
       "additionalProperties": false
+    },
+    "dissolution": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "volumePerTick": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 0.18,
+          "x-owner": "parameters.dissolution",
+          "x-displayNameZh": "单份材料每 tick 溶解体积"
+        },
+        "exposureProbeDistance": {
+          "type": "number",
+          "minimum": 0,
+          "default": 18,
+          "x-owner": "parameters.dissolution",
+          "x-displayNameZh": "受火暴露探测距离"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

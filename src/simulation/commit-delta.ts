@@ -11,8 +11,11 @@ import {
   type SimulationDeltaCommitResult,
   type SimulationDeltaError,
 } from './contracts.ts'
-
-const EPSILON = 1e-9
+import {
+  clampVolumeToZero,
+  volumeTolerance,
+  volumesApproximatelyEqual,
+} from './volume-tolerance.ts'
 
 function reject(
   state: DomainState,
@@ -83,10 +86,18 @@ export function commitSimulationDeltaCandidate(
     const index = materialIndexes.get(materialInstanceId)
     if (index === undefined) return 'SIM_DELTA_ENTITY_NOT_FOUND'
     const instance = materialInstances[index]!
-    if (instance.remainingVolume + EPSILON < volume) return 'SIM_DELTA_NEGATIVE_VOLUME'
+    if (
+      instance.remainingVolume +
+        volumeTolerance(instance.remainingVolume, volume) <
+      volume
+    ) return 'SIM_DELTA_NEGATIVE_VOLUME'
+    const remainingVolume = Math.max(0, instance.remainingVolume - volume)
     materialInstances[index] = {
       ...instance,
-      remainingVolume: Math.max(0, instance.remainingVolume - volume),
+      remainingVolume: clampVolumeToZero(
+        remainingVolume,
+        instance.initialVolume,
+      ),
     }
     return null
   }
@@ -158,7 +169,11 @@ export function commitSimulationDeltaCandidate(
     for (const pearlType of pearlTypes) {
       if (
         groupedVolume(bornVolumes, materialInstanceId, pearlType) >
-        groupedVolume(dissolvedVolumes, materialInstanceId, pearlType) + EPSILON
+        groupedVolume(dissolvedVolumes, materialInstanceId, pearlType) +
+          volumeTolerance(
+            groupedVolume(bornVolumes, materialInstanceId, pearlType),
+            groupedVolume(dissolvedVolumes, materialInstanceId, pearlType),
+          )
       ) {
         return reject(state, 'SIM_DELTA_VOLUME_MISMATCH')
       }
@@ -183,10 +198,14 @@ export function commitSimulationDeltaCandidate(
     if (current === undefined || terminalPearls[change.pearlId] !== undefined) {
       return reject(state, 'SIM_DELTA_ENTITY_NOT_FOUND')
     }
-    if (Math.abs(current - change.previousVolume) > EPSILON) {
+    if (!volumesApproximatelyEqual(current, change.previousVolume)) {
       return reject(state, 'SIM_DELTA_VOLUME_MISMATCH')
     }
-    if (change.currentVolume > change.previousVolume + EPSILON) {
+    if (
+      change.currentVolume >
+      change.previousVolume +
+        volumeTolerance(change.currentVolume, change.previousVolume)
+    ) {
       return reject(state, 'SIM_DELTA_VOLUME_MISMATCH')
     }
     changedPearls.add(change.pearlId)
@@ -219,16 +238,18 @@ export function commitSimulationDeltaCandidate(
       if (naturallyLostPearls.has(loss.pearlId)) {
         return reject(state, 'SIM_DELTA_DUPLICATE_ENTITY')
       }
-      if (current + EPSILON < loss.volume) return reject(state, 'SIM_DELTA_NEGATIVE_VOLUME')
+      if (
+        current + volumeTolerance(current, loss.volume) < loss.volume
+      ) return reject(state, 'SIM_DELTA_NEGATIVE_VOLUME')
       const remainingVolume = Math.max(0, current - loss.volume)
       const sameDeltaTerminals = terminalCandidates.get(loss.pearlId) ?? []
       const hasNaturalLossBurn =
         sameDeltaTerminals.length === 1 &&
         sameDeltaTerminals[0] === 'burned' &&
-        remainingVolume <= EPSILON
+        remainingVolume <= volumeTolerance(current)
       if (
         (sameDeltaTerminals.length > 0 && !hasNaturalLossBurn) ||
-        (remainingVolume <= EPSILON && !hasNaturalLossBurn)
+        (remainingVolume <= volumeTolerance(current) && !hasNaturalLossBurn)
       ) {
         return reject(state, 'SIM_DELTA_NATURAL_LOSS_NOT_ELIGIBLE')
       }

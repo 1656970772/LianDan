@@ -93,7 +93,7 @@ test.describe('M0 Phaser 空场景', () => {
   for (const viewport of VIEWPORTS) {
     test(`${viewport.width}×${viewport.height} 等比缩放且不裁切`, async ({ page }) => {
       await page.setViewportSize(viewport)
-      await page.goto('/')
+      await page.goto('/?mode=technical')
 
       await expectEmptyGameFitsViewport(page)
     })
@@ -103,7 +103,7 @@ test.describe('M0 Phaser 空场景', () => {
 test('冷启动没有浏览器控制台错误或失败资源请求', async ({ page }) => {
   const failures = observeBrowserFailures(page)
 
-  await page.goto('/')
+  await page.goto('/?mode=technical')
   await expect(page.locator('body')).toHaveAttribute('data-app-state', 'ready')
   await page.waitForLoadState('networkidle')
 
@@ -128,7 +128,7 @@ test('parameters.json 越界时显示中文错误且不创建 Canvas', async ({ 
     })
   })
 
-  await page.goto('/')
+  await page.goto('/?mode=technical')
 
   const error = page.locator('[data-config-error]')
   await expect(error).toHaveAttribute('role', 'alert')
@@ -184,6 +184,10 @@ test('gAMA 与透明隐藏 RGB 不改变跨端 canonical RGBA 指纹', async ({
             mergeRate: 0.15,
             fullObstacleThreshold: 0.95,
           },
+          dissolution: {
+            volumePerTick: 0.18,
+            exposureProbeDistance: 18,
+          },
         },
       },
       {
@@ -192,7 +196,7 @@ test('gAMA 与透明隐藏 RGB 不改变跨端 canonical RGBA 指纹', async ({
         value: {
           schemaVersion: 1,
           id: 'prototype-herb',
-          targetPearlCount: 300,
+          targetPearlCount: 8,
         },
       },
     ],
@@ -210,7 +214,7 @@ test('gAMA 与透明隐藏 RGB 不改变跨端 canonical RGBA 指纹', async ({
   await page.route('**/assets/masks/prototype-herb-components.png', async (route) => {
     await route.fulfill({ body: png, contentType: 'image/png', status: 200 })
   })
-  await page.goto('/')
+  await page.goto('/?mode=technical')
 
   await expect(page.locator('body')).toHaveAttribute('data-app-state', 'ready')
   await expect(page.locator('canvas[data-game="liandan"]')).toHaveAttribute(
@@ -231,7 +235,7 @@ test('半透明成分像素在浏览器边界稳定拒绝', async ({ page }) => 
   await page.route('**/assets/masks/prototype-herb-components.png', async (route) => {
     await route.fulfill({ body: png, contentType: 'image/png', status: 200 })
   })
-  await page.goto('/')
+  await page.goto('/?mode=technical')
 
   const error = page.locator('[data-config-error]')
   await expect(error.locator('[data-config-error-code]')).toContainText(

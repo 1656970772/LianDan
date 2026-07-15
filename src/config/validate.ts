@@ -57,12 +57,17 @@ interface RawParameters {
     readonly mergeRate?: number
     readonly fullObstacleThreshold?: number
   }>
+  readonly dissolution?: Readonly<{
+    readonly volumePerTick?: number
+    readonly exposureProbeDistance?: number
+  }>
 }
 
 interface RawMaterial {
   readonly schemaVersion: 1
   readonly id: string
   readonly nameZh: string
+  readonly appearancePath?: string
   readonly targetPearlCount?: number
   readonly compositionMapPath: string
 }
@@ -103,6 +108,12 @@ function rangeMessage(fieldPath: string): string | undefined {
     return '完全障碍判定阈值必须在 (0, 1] 之间'
   }
   if (fieldPath.startsWith('/flowField/')) return '流场系数必须在 0..1 之间'
+  if (fieldPath === '/dissolution/volumePerTick') {
+    return '单份材料每 tick 溶解体积必须是有限正数'
+  }
+  if (fieldPath === '/dissolution/exposureProbeDistance') {
+    return '受火暴露探测距离必须是有限非负数'
+  }
   return undefined
 }
 
@@ -370,12 +381,27 @@ function normalize(raw: RawConfigSet, schemas: ConfigSchemaBundle): NormalizedCo
         'fullObstacleThreshold',
       ),
   }
+  const dissolution = {
+    volumePerTick:
+      parameters.dissolution?.volumePerTick ??
+      staticNumberDefault(schemas.parameters, 'dissolution', 'volumePerTick'),
+    exposureProbeDistance:
+      parameters.dissolution?.exposureProbeDistance ??
+      staticNumberDefault(
+        schemas.parameters,
+        'dissolution',
+        'exposureProbeDistance',
+      ),
+  }
 
   const materials: NormalizedMaterial[] = raw.materials.map((document) => {
     const material = document.value as RawMaterial
     return {
       id: material.id,
       nameZh: material.nameZh,
+      ...(material.appearancePath === undefined
+        ? {}
+        : { appearancePath: material.appearancePath }),
       targetPearlCount:
         material.targetPearlCount ??
         staticNumberDefault(schemas.material, 'targetPearlCount'),
@@ -385,7 +411,13 @@ function normalize(raw: RawConfigSet, schemas: ConfigSchemaBundle): NormalizedCo
 
   return deepFreeze({
     schemaVersion: 1,
-    parameters: { standardPearlVolume, slagUnitVolume, simulation, flowField },
+    parameters: {
+      standardPearlVolume,
+      slagUnitVolume,
+      simulation,
+      flowField,
+      dissolution,
+    },
     materials,
   })
 }

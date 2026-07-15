@@ -1,4 +1,5 @@
 import type {
+  DomainEvent,
   DomainState,
   DomainStatus,
   PrototypeRules,
@@ -220,11 +221,13 @@ export type TickCommit = Readonly<{
   tick: number
   state: DomainState
   readModel: ApplicationReadModel
+  events: readonly DomainEvent[]
 }>
 
 export type TickHooks = Readonly<{
   buildSimulationDelta?: (tick: number, state: DomainState) => SimulationDelta
   onPhase?: (phase: TickPhase, state: DomainState) => DomainState | void
+  beforeTickFinalized?: () => void
   onTickCommitted?: (commit: TickCommit) => void
 }>
 

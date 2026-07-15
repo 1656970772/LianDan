@@ -23,6 +23,12 @@
       "x-owner": "material",
       "x-simulation": false
     },
+    "appearancePath": {
+      "type": "string",
+      "pattern": "^/assets/materials/[a-z0-9][a-z0-9-]*\\.png$",
+      "x-owner": "material",
+      "x-simulation": false
+    },
     "targetPearlCount": {
       "type": "integer",
       "minimum": 1,

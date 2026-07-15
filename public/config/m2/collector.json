@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "initialX": 800,
+  "y": 820,
+  "width": 180,
+  "height": 48,
+  "minX": 160,
+  "maxX": 1440,
+  "acceleration": 1200,
+  "deceleration": 1600,
+  "maxSpeed": 500
+}

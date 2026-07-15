@@ -39,7 +39,10 @@ export class FixedStepClock {
     this.#maxCatchUpSteps = options.maxCatchUpSteps
   }
 
-  frame(frameTimeMilliseconds: number, advanceTick: () => void): FixedStepClockFrame {
+  frame(
+    frameTimeMilliseconds: number,
+    advanceTick: () => boolean | void,
+  ): FixedStepClockFrame {
     if (
       !Number.isFinite(frameTimeMilliseconds) ||
       frameTimeMilliseconds < 0 ||
@@ -67,10 +70,19 @@ export class FixedStepClock {
     const dueTickCount = Math.floor(
       (this.#accumulatorMilliseconds + epsilon) / this.#stepMilliseconds,
     )
-    const advancedTickCount = Math.min(dueTickCount, this.#maxCatchUpSteps)
-    const droppedTickCount = Math.max(0, dueTickCount - advancedTickCount)
-
-    for (let index = 0; index < advancedTickCount; index += 1) advanceTick()
+    const attemptedTickCount = Math.min(dueTickCount, this.#maxCatchUpSteps)
+    let advancedTickCount = 0
+    let halted = false
+    for (let index = 0; index < attemptedTickCount; index += 1) {
+      if (advanceTick() === false) {
+        halted = true
+        break
+      }
+      advancedTickCount += 1
+    }
+    const droppedTickCount = halted
+      ? 0
+      : Math.max(0, dueTickCount - attemptedTickCount)
 
     this.#accumulatorMilliseconds -= dueTickCount * this.#stepMilliseconds
     if (Math.abs(this.#accumulatorMilliseconds) <= epsilon) {

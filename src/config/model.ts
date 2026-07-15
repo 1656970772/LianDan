@@ -35,11 +35,16 @@ export interface NormalizedParameters {
     readonly mergeRate: number
     readonly fullObstacleThreshold: number
   }>
+  readonly dissolution: Readonly<{
+    readonly volumePerTick: number
+    readonly exposureProbeDistance: number
+  }>
 }
 
 export interface NormalizedMaterial {
   readonly id: string
   readonly nameZh: string
+  readonly appearancePath?: string
   readonly targetPearlCount: number
   readonly compositionMapPath: string
 }

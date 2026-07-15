@@ -324,8 +324,8 @@
 }
 
 @media (max-width: 900px) {
-  body[data-app-state="ready"],
-  body[data-app-state="game-loading"] {
+  body[data-app-mode="technical"][data-app-state="ready"],
+  body[data-app-mode="technical"][data-app-state="game-loading"] {
     overflow: auto;
   }
 

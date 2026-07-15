@@ -196,6 +196,38 @@ describe('M1 玩家可读火流展示契约', () => {
     )
   })
 
+  it('快速出火保留预热粒子，但可见前沿从喷口按真实时间向前推进', () => {
+    const presentation = new M1FirePresentation({
+      ...M1_FIRE_PRESENTATION_CONFIG,
+      startup: {
+        mode: 'rapid-reveal',
+        propagationSpeedPixelsPerSecond: 3_000,
+        frontFeatherPixels: 70,
+      },
+    })
+    const view = createUpwardFlowView()
+    const source = {
+      position: { x: 800, y: 700 },
+      direction: { x: 0, y: -1 },
+      width: 240,
+    }
+
+    presentation.reset(view, source)
+    expect(presentation.revealDistancePixels).toBe(0)
+
+    for (let frame = 0; frame < 3; frame += 1) {
+      presentation.advance(view, source, 1 / 30)
+    }
+    expect(presentation.revealDistancePixels).toBeCloseTo(300, 6)
+
+    presentation.reset(view, source)
+    presentation.advance(view, source, 0.2)
+    expect(presentation.revealDistancePixels).toBeCloseTo(600, 6)
+
+    presentation.resetSteady(view, source)
+    expect(presentation.revealDistancePixels).toBeNull()
+  })
+
   it('喷口横向出生分布的中段密度明显高于等宽外侧', () => {
     const config = {
       ...M1_FIRE_PRESENTATION_CONFIG,

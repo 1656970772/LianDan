@@ -31,9 +31,19 @@ body {
   place-items: center;
 }
 
-body[data-app-state="ready"],
-body[data-app-state="game-loading"] {
+body[data-app-mode="technical"][data-app-state="ready"],
+body[data-app-mode="technical"][data-app-state="game-loading"],
+body[data-app-mode="m2"][data-app-state="ready"],
+body[data-app-mode="m2"][data-app-state="game-loading"] {
   overflow: hidden;
+}
+
+@media (max-width: 1000px) {
+  body[data-app-mode="m2"][data-app-state="ready"],
+  body[data-app-mode="m2"][data-app-state="game-loading"] {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 }
 
 body[data-app-state="config-error"] #app {

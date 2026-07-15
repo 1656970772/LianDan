@@ -1,5 +1,6 @@
 import {
   canonicalizeCompositionMap,
+  isolateDecodedCompositionMap,
   validateCompositionMap,
   validateCompositionPngHeader,
 } from './assets'
@@ -27,8 +28,17 @@ export type BrowserConfigLoadResult =
     }
   | { readonly ok: false; readonly issues: readonly ConfigIssue[] }
 
+export type BrowserConfigWithAssetsLoadResult =
+  | {
+      readonly ok: true
+      readonly config: NormalizedConfig
+      readonly compositionMaps: readonly DecodedCompositionMap[]
+      readonly simulationContentFingerprint: string
+    }
+  | { readonly ok: false; readonly issues: readonly ConfigIssue[] }
+
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-type PngDecoder = (
+export type PngDecoder = (
   bytes: Uint8Array,
   filePath: string,
 ) => Promise<DecodedCompositionMap>
@@ -91,7 +101,7 @@ async function fetchJsonDocument(
   }
 }
 
-async function defaultDecodePng(
+export async function decodeBrowserPng(
   bytes: Uint8Array,
   filePath: string,
 ): Promise<DecodedCompositionMap> {
@@ -149,12 +159,12 @@ async function loadCompositionMap(
   }
 }
 
-export async function loadBrowserConfig(
+export async function loadBrowserConfigWithAssets(
   options: BrowserConfigLoaderOptions = {},
-): Promise<BrowserConfigLoadResult> {
+): Promise<BrowserConfigWithAssetsLoadResult> {
   const configSetPath = options.configSetPath ?? '/config/config-set.json'
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis)
-  const decoder = options.decodePng ?? defaultDecodePng
+  const decoder = options.decodePng ?? decodeBrowserPng
   try {
     const manifestLoad = await fetchJsonDocument(fetcher, configSetPath)
     if (!manifestLoad.ok) return { ok: false, issues: [manifestLoad.issue] }
@@ -197,12 +207,14 @@ export async function loadBrowserConfig(
       if (result.map === undefined) throw new Error('unreachable')
       return result.map
     })
+    const readonlyMaps = Object.freeze(maps.map(isolateDecodedCompositionMap))
     const fingerprint = await computeSimulationContentFingerprint(
-      createSimulationFingerprintInput(validated.config, maps),
+      createSimulationFingerprintInput(validated.config, readonlyMaps),
     )
     return {
       ok: true,
       config: validated.config,
+      compositionMaps: readonlyMaps,
       simulationContentFingerprint: fingerprint.simulationContentFingerprint,
     }
   } catch {
@@ -217,5 +229,17 @@ export async function loadBrowserConfig(
         ),
       ],
     }
+  }
+}
+
+export async function loadBrowserConfig(
+  options: BrowserConfigLoaderOptions = {},
+): Promise<BrowserConfigLoadResult> {
+  const result = await loadBrowserConfigWithAssets(options)
+  if (!result.ok) return result
+  return {
+    ok: true,
+    config: result.config,
+    simulationContentFingerprint: result.simulationContentFingerprint,
   }
 }
