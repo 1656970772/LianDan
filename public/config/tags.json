@@ -55,25 +55,25 @@
   ],
   "stateDerivation": {
     "preservationStates": [
-      { "stateId": "fresh", "tagId": "fresh" },
-      { "stateId": "dried", "tagId": "dried" },
-      { "stateId": "rotten", "tagId": "rotten" },
-      { "stateId": "frozen", "tagId": "frozen" }
+      { "stateId": "fresh", "tagId": "fresh", "strength": 100 },
+      { "stateId": "dried", "tagId": "dried", "strength": 100 },
+      { "stateId": "rotten", "tagId": "rotten", "strength": 100 },
+      { "stateId": "frozen", "tagId": "frozen", "strength": 100 }
     ],
     "growthSources": [
-      { "stateId": "wild", "tagId": "wild" },
-      { "stateId": "cultivated", "tagId": "cultivated" },
-      { "stateId": "mutated", "tagId": "mutated" }
+      { "stateId": "wild", "tagId": "wild", "strength": 100 },
+      { "stateId": "cultivated", "tagId": "cultivated", "strength": 100 },
+      { "stateId": "mutated", "tagId": "mutated", "strength": 100 }
     ],
     "ages": [
-      { "ageYears": 2, "tagId": "age_2" },
-      { "ageYears": 3, "tagId": "age_3" },
-      { "ageYears": 5, "tagId": "age_5" },
-      { "ageYears": 8, "tagId": "age_8" },
-      { "ageYears": 10, "tagId": "age_10" },
-      { "ageYears": 20, "tagId": "age_20" },
-      { "ageYears": 50, "tagId": "age_50" },
-      { "ageYears": 100, "tagId": "age_100" }
+      { "ageYears": 2, "tagId": "age_2", "strength": 100 },
+      { "ageYears": 3, "tagId": "age_3", "strength": 100 },
+      { "ageYears": 5, "tagId": "age_5", "strength": 100 },
+      { "ageYears": 8, "tagId": "age_8", "strength": 100 },
+      { "ageYears": 10, "tagId": "age_10", "strength": 100 },
+      { "ageYears": 20, "tagId": "age_20", "strength": 100 },
+      { "ageYears": 50, "tagId": "age_50", "strength": 100 },
+      { "ageYears": 100, "tagId": "age_100", "strength": 100 }
     ]
   }
 }

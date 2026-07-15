@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
@@ -12,23 +12,104 @@ import { loadAndValidatePublicM2GameplayConfig } from '../../config/node-m2-game
 import type { RawConfigDocument } from '../../config/model.ts'
 import { deriveBatchTags } from '../../config/tag-derivation.ts'
 import { validateAndNormalizeConfigSet, type RawConfigSet } from '../../config/validate.ts'
+import { applyRuleCommand, createDomainState } from '../../domain/model.ts'
+import { createM2RuntimeConfiguration } from '../../game/extraction/runtime-config.ts'
 import {
   loadM2GameplayTestSchemaBundle,
   loadTestSchemaBundle,
 } from './schema-fixture.ts'
 
 const PROJECT_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
-const MATERIAL_IDS = [
-  'red_whisker_ginseng',
-  'azure_dew_leaf',
-  'violet_star_flower',
-  'golden_bell_fruit',
-  'ash_spore_mushroom',
-  'coiling_cloud_vine',
-  'frost_marrow_crystal',
-  'sinking_fragrance_bark',
+const EXPECTED_MATERIALS = [
+  {
+    id: 'red_whisker_ginseng',
+    nameZh: '赤须参',
+    pearlColor: '#E36B3D',
+    intrinsicTagIds: ['warm_fierce', 'tonify', 'active', 'scorch_meridians'],
+    batchId: 'red_whisker_ginseng_fresh_wild_10',
+    preservationStateId: 'fresh',
+    growthSourceId: 'wild',
+    ageYears: 10,
+  },
+  {
+    id: 'azure_dew_leaf',
+    nameZh: '青露叶',
+    pearlColor: '#3FAFD1',
+    intrinsicTagIds: ['cool_clear', 'clear_heart', 'dispersive', 'cold_stagnation'],
+    batchId: 'azure_dew_leaf_fresh_cultivated_3',
+    preservationStateId: 'fresh',
+    growthSourceId: 'cultivated',
+    ageYears: 3,
+  },
+  {
+    id: 'violet_star_flower',
+    nameZh: '紫星花',
+    pearlColor: '#C86CB4',
+    intrinsicTagIds: ['balanced', 'calm_spirit', 'volatile', 'delusion'],
+    batchId: 'violet_star_flower_dried_wild_5',
+    preservationStateId: 'dried',
+    growthSourceId: 'wild',
+    ageYears: 5,
+  },
+  {
+    id: 'golden_bell_fruit',
+    nameZh: '金铃果',
+    pearlColor: '#E8B943',
+    intrinsicTagIds: ['sweet_warm', 'stabilize_origin', 'tough', 'qi_stagnation'],
+    batchId: 'golden_bell_fruit_fresh_cultivated_8',
+    preservationStateId: 'fresh',
+    growthSourceId: 'cultivated',
+    ageYears: 8,
+  },
+  {
+    id: 'ash_spore_mushroom',
+    nameZh: '灰孢菇',
+    pearlColor: '#8BCB58',
+    intrinsicTagIds: ['damp_yin', 'lure_beast', 'spore_scatter', 'rot_poison'],
+    batchId: 'ash_spore_mushroom_rotten_mutated_2',
+    preservationStateId: 'rotten',
+    growthSourceId: 'mutated',
+    ageYears: 2,
+  },
+  {
+    id: 'coiling_cloud_vine',
+    nameZh: '盘云藤',
+    pearlColor: '#43B66A',
+    intrinsicTagIds: ['supple', 'unblock_channels', 'adhesive', 'breath_bind'],
+    batchId: 'coiling_cloud_vine_dried_wild_20',
+    preservationStateId: 'dried',
+    growthSourceId: 'wild',
+    ageYears: 20,
+  },
+  {
+    id: 'frost_marrow_crystal',
+    nameZh: '寒髓晶',
+    pearlColor: '#70CFF2',
+    intrinsicTagIds: ['extreme_cold', 'suppress_heat', 'stagnant', 'cold_poison'],
+    batchId: 'frost_marrow_crystal_frozen_mutated_100',
+    preservationStateId: 'frozen',
+    growthSourceId: 'mutated',
+    ageYears: 100,
+  },
+  {
+    id: 'sinking_fragrance_bark',
+    nameZh: '沉香皮',
+    pearlColor: '#C98A48',
+    intrinsicTagIds: ['warm_moist', 'settle_spirit', 'settling', 'smoke_poison'],
+    batchId: 'sinking_fragrance_bark_dried_cultivated_50',
+    preservationStateId: 'dried',
+    growthSourceId: 'cultivated',
+    ageYears: 50,
+  },
 ] as const
-const MATERIAL_NAMES = ['赤须参', '青露叶', '紫星花', '金铃果', '灰孢菇', '盘云藤', '寒髓晶', '沉香皮']
+
+const MATERIAL_IDS = EXPECTED_MATERIALS.map(({ id }) => id)
+const INTRINSIC_CATEGORIES = [
+  'medicinalProperty',
+  'efficacyClue',
+  'reactionTrait',
+  'risk',
+] as const
 
 function readPublicJson(path: string): unknown {
   return JSON.parse(
@@ -40,8 +121,26 @@ function document(path: string, value = readPublicJson(path)): RawConfigDocument
   return { filePath: path, value }
 }
 
+function rawProductionBase(tagsValue = readPublicJson('/config/tags.json')): RawConfigSet {
+  const manifestPath = '/config/config-set.json'
+  const manifest = readPublicJson(manifestPath) as {
+    parameters: string
+    tags: string
+    materials: string[]
+  }
+  return {
+    configSet: document(manifestPath, manifest),
+    parameters: document(manifest.parameters),
+    tags: document(manifest.tags, tagsValue),
+    materials: manifest.materials.map((path) => document(path)),
+  }
+}
+
+let productionLoad: ReturnType<typeof loadAndValidatePublicM2GameplayConfig> | undefined
+
 async function loadProduction() {
-  const result = await loadAndValidatePublicM2GameplayConfig(PROJECT_ROOT)
+  productionLoad ??= loadAndValidatePublicM2GameplayConfig(PROJECT_ROOT)
+  const result = await productionLoad
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(JSON.stringify(result.issues))
   return result
@@ -59,37 +158,171 @@ function countComponents(rgba: Uint8Array): Readonly<Record<'medicinal' | 'slag'
   return counts
 }
 
+function compositionCodes(rgba: Uint8Array): Uint8Array {
+  const codes = new Uint8Array(rgba.length / 4)
+  for (let index = 0; index < codes.length; index += 1) {
+    const offset = index * 4
+    if (rgba[offset + 3] === 0) codes[index] = 0
+    else if (rgba[offset] === 0 && rgba[offset + 1] === 255) codes[index] = 1
+    else if (rgba[offset] === 128 && rgba[offset + 1] === 128) codes[index] = 2
+    else codes[index] = 3
+  }
+  return codes
+}
+
 describe('M4 完整内容与配置', () => {
-  it('加载 8 种药材、8 个三状态批次、47 个标签与赤寒互动', async () => {
+  it('逐项锁定 8 种药材、批次状态、标签强度与素材路径', async () => {
     const loaded = await loadProduction()
     expect(loaded.config.base.materials.map(({ id }) => id)).toEqual(MATERIAL_IDS)
-    expect(loaded.config.base.materials.map(({ nameZh }) => nameZh)).toEqual(MATERIAL_NAMES)
     expect(loaded.config.base.tags?.definitions).toHaveLength(47)
-    expect(loaded.config.gameplay.prototype.inventoryBatches).toHaveLength(8)
-    expect(loaded.config.gameplay.prototype.inventoryBatches.every(
-      (batch) =>
-        batch.servings === 3 &&
-        batch.preservationStateId !== undefined &&
-        batch.growthSourceId !== undefined &&
-        batch.ageYears !== undefined &&
-        batch.tags?.length === 7,
+    expect(loaded.config.base.materials).toHaveLength(EXPECTED_MATERIALS.length)
+    expect(loaded.config.gameplay.prototype.inventoryBatches).toHaveLength(
+      EXPECTED_MATERIALS.length,
+    )
+    for (const expected of EXPECTED_MATERIALS) {
+      const material = loaded.config.base.materials.find(({ id }) => id === expected.id)
+      const batch = loaded.config.gameplay.prototype.inventoryBatches.find(
+        ({ batchId }) => batchId === expected.batchId,
+      )
+      expect(material).toMatchObject({
+        id: expected.id,
+        nameZh: expected.nameZh,
+        pearlColor: expected.pearlColor,
+        targetPearlCount: 300,
+        appearancePath: `/assets/materials/${expected.id}.png`,
+        compositionMapPath: `/assets/masks/${expected.id}-components.png`,
+      })
+      expect(
+        INTRINSIC_CATEGORIES.flatMap((category) =>
+          material?.intrinsicTags?.[category] ?? [],
+        ),
+      ).toEqual(
+        expected.intrinsicTagIds.map((tagId) => ({ tagId, strength: 100 })),
+      )
+      expect(batch).toMatchObject({
+        batchId: expected.batchId,
+        materialDefinitionId: expected.id,
+        servings: 3,
+        preservationStateId: expected.preservationStateId,
+        growthSourceId: expected.growthSourceId,
+        ageYears: expected.ageYears,
+      })
+      expect(batch?.tags).toHaveLength(7)
+      expect(batch?.tags?.every(({ strength }) => strength === 100)).toBe(true)
+    }
+    expect(loaded.simulationContentFingerprint).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('正式 loader 把 8 定义、8 批次、8 成分映射和互动完整传入运行时', async () => {
+    const loaded = await loadProduction()
+    const runtime = createM2RuntimeConfiguration(
+      loaded.config,
+      loaded.compositionMaps,
+    )
+
+    expect(runtime.simulation.materials.map(({ id }) => id)).toEqual(MATERIAL_IDS)
+    expect(runtime.simulation.materials).toHaveLength(8)
+    expect(runtime.simulation.materials.every(
+      ({ composition }) => composition.length === 64 * 64,
     )).toBe(true)
-    expect(loaded.config.base.materials.every((material) =>
-      material.targetPearlCount === 300 &&
-      material.pearlColor !== undefined &&
-      Object.values(material.intrinsicTags ?? {}).every((tags) => tags.length === 1),
-    )).toBe(true)
-    expect(loaded.config.gameplay.interactions).toEqual([
-      expect.objectContaining({
+    for (const expected of EXPECTED_MATERIALS) {
+      const sourceMap = loaded.compositionMaps.find(
+        ({ filePath }) =>
+          filePath === `/assets/masks/${expected.id}-components.png`,
+      )!
+      const runtimeMaterial = runtime.simulation.materials.find(
+        ({ id }) => id === expected.id,
+      )!
+      expect(runtimeMaterial.composition).toEqual(compositionCodes(sourceMap.rgba))
+    }
+    expect(runtime.rules.inventoryBatches.map(({ batchId }) => batchId)).toEqual(
+      EXPECTED_MATERIALS.map(({ batchId }) => batchId),
+    )
+    expect(runtime.simulation.interactions).toEqual([
+      {
         id: 'red_frost_medicinal_fight',
         behavior: 'fight',
+        participantA: {
+          materialDefinitionIds: ['red_whisker_ginseng'],
+          requiredTagIds: [],
+          pearlTypes: ['medicinalLiquid'],
+        },
+        participantB: {
+          materialDefinitionIds: ['frost_marrow_crystal'],
+          requiredTagIds: [],
+          pearlTypes: ['medicinalLiquid'],
+        },
         distance: 64,
         durationSeconds: 0.6,
         impulse: 180,
         cooldownSeconds: 1.5,
-      }),
+      },
     ])
-    expect(loaded.simulationContentFingerprint).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it.each(EXPECTED_MATERIALS)(
+    '$batchId 可经通用预选与投入路径生成 $id 实例',
+    async (expected) => {
+      const loaded = await loadProduction()
+      const runtime = createM2RuntimeConfiguration(
+        loaded.config,
+        loaded.compositionMaps,
+      )
+      const initial = createDomainState(runtime.rules)
+      const selected = applyRuleCommand(
+        initial,
+        {
+          type: 'PreselectMaterial',
+          payload: { inventoryBatchId: expected.batchId },
+        },
+        runtime.rules,
+      )
+      expect(selected.ok).toBe(true)
+      if (!selected.ok) return
+      const added = applyRuleCommand(
+        selected.state,
+        { type: 'AddSelectedMaterial', payload: {} },
+        runtime.rules,
+      )
+
+      expect(added).toMatchObject({
+        ok: true,
+        state: {
+          materialInstances: [
+            {
+              inventoryBatchId: expected.batchId,
+              materialDefinitionId: expected.id,
+              initialVolume: 300,
+              remainingVolume: 300,
+            },
+          ],
+        },
+      })
+    },
+  )
+
+  it('发布目录与 manifest 的 8 份药材、外观和成分图一一对应', () => {
+    const manifest = readPublicJson('/config/config-set.json') as {
+      materials: string[]
+    }
+    const materialPaths = manifest.materials
+    const materialDocuments = materialPaths.map((path) => document(path).value) as Array<{
+      appearancePath: string
+      compositionMapPath: string
+    }>
+    const fileNames = (directory: string) =>
+      readdirSync(resolve(PROJECT_ROOT, 'public', directory)).sort()
+
+    expect(new Set(materialPaths).size).toBe(materialPaths.length)
+    expect(fileNames('config/materials')).toEqual(
+      materialPaths.map((path) => path.split('/').at(-1)!).sort(),
+    )
+    expect(fileNames('assets/materials')).toEqual(
+      materialDocuments.map(({ appearancePath }) => appearancePath.split('/').at(-1)!).sort(),
+    )
+    expect(fileNames('assets/masks')).toEqual(
+      materialDocuments.map(({ compositionMapPath }) => compositionMapPath.split('/').at(-1)!).sort(),
+    )
   })
 
   it('8 张成分图都保持约 25/60/15，并换算为约 75/180/45 颗理论丹珠', async () => {
@@ -129,6 +362,87 @@ describe('M4 完整内容与配置', () => {
       changed.tags.slice(4).map(({ tagId }) => tagId),
     )
     expect(JSON.stringify(material)).toBe(beforeMaterial)
+  })
+
+  it('状态规则 strength=73 会进入派生标签并改变 fingerprint', async () => {
+    const loaded = await loadProduction()
+    const tags = structuredClone(readPublicJson('/config/tags.json')) as {
+      stateDerivation: {
+        preservationStates: Array<{
+          stateId: string
+          tagId: string
+          strength?: number
+        }>
+      }
+    }
+    const fresh = tags.stateDerivation.preservationStates.find(
+      ({ stateId }) => stateId === 'fresh',
+    )!
+    fresh.strength = 73
+    const normalized = validateAndNormalizeConfigSet(
+      rawProductionBase(tags),
+      loadTestSchemaBundle(),
+    )
+    expect(normalized.ok).toBe(true)
+    if (!normalized.ok) throw new Error(JSON.stringify(normalized.issues))
+
+    const derived = deriveBatchTags(
+      normalized.config.tags!,
+      normalized.config.materials[0]!,
+      {
+        preservationStateId: 'fresh',
+        growthSourceId: 'wild',
+        ageYears: 10,
+      },
+    )
+    expect(derived.ok).toBe(true)
+    if (!derived.ok) throw new Error(JSON.stringify(derived))
+    expect(derived.tags).toContainEqual({ tagId: 'fresh', strength: 73 })
+
+    const fingerprint = await computeSimulationContentFingerprint(
+      createM2SimulationFingerprintInput(
+        normalized.config,
+        loaded.config.gameplay,
+        loaded.compositionMaps,
+      ),
+    )
+    expect(fingerprint.simulationContentFingerprint).not.toBe(
+      loaded.simulationContentFingerprint,
+    )
+  })
+
+  it.each([
+    ['缺失', undefined, 'CONFIG_REQUIRED_FIELD'],
+    ['小于下限', -0.01, 'CONFIG_VALUE_OUT_OF_RANGE'],
+    ['大于上限', 100.01, 'CONFIG_VALUE_OUT_OF_RANGE'],
+  ] as const)('拒绝状态规则 strength %s', (_case, strength, code) => {
+    const tags = structuredClone(readPublicJson('/config/tags.json')) as {
+      stateDerivation: {
+        preservationStates: Array<{
+          stateId: string
+          tagId: string
+          strength?: number
+        }>
+      }
+    }
+    const rule = tags.stateDerivation.preservationStates[0]!
+    if (strength === undefined) delete rule.strength
+    else rule.strength = strength
+
+    const result = validateAndNormalizeConfigSet(
+      rawProductionBase(tags),
+      loadTestSchemaBundle(),
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          code,
+          filePath: '/config/tags.json',
+          fieldPath: '/stateDerivation/preservationStates/0/strength',
+        }),
+      ],
+    })
   })
 
   it('展示名和药液颜色不影响指纹，成分像素变化会影响指纹', async () => {

@@ -143,6 +143,40 @@ describe('loadBrowserConfig', () => {
     })
   })
 
+  it('将成分图响应体读取失败精确映射为 CONFIG_ASSET_NOT_FOUND', async () => {
+    const baseOptions = loaderOptions()
+    const baseFetch = baseOptions.fetch!
+    const options: BrowserConfigLoaderOptions = {
+      ...baseOptions,
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === MATERIAL.compositionMapPath) {
+          const response = new Response()
+          Object.defineProperty(response, 'arrayBuffer', {
+            value: async () => {
+              throw new TypeError('body read failed')
+            },
+          })
+          return response
+        }
+        return baseFetch(input, init)
+      },
+    }
+
+    const result = await loadBrowserConfig(options)
+
+    expect(result).toEqual({
+      ok: false,
+      issues: [
+        {
+          code: 'CONFIG_ASSET_NOT_FOUND',
+          filePath: MATERIAL.compositionMapPath,
+          fieldPath: '',
+          messageZh: '已登记的成分图无法加载',
+        },
+      ],
+    })
+  })
+
   it.each([
     {
       filePath: '/config/config-set.json',

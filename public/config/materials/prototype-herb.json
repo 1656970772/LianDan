@@ -1,8 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "prototype-herb",
-  "nameZh": "青岚草",
-  "appearancePath": "/assets/materials/prototype-herb.png",
-  "targetPearlCount": 8,
-  "compositionMapPath": "/assets/masks/prototype-herb-components.png"
-}

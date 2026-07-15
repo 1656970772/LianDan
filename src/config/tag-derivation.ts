@@ -65,9 +65,9 @@ export function deriveBatchTags(
     ok: true,
     tags: Object.freeze([
       ...intrinsic,
-      { tagId: preservation.tagId, strength: 100 },
-      { tagId: growth.tagId, strength: 100 },
-      { tagId: age.tagId, strength: 100 },
+      { tagId: preservation.tagId, strength: preservation.strength },
+      { tagId: growth.tagId, strength: growth.strength },
+      { tagId: age.tagId, strength: age.strength },
     ]),
   }
 }

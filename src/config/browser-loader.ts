@@ -146,7 +146,14 @@ async function loadCompositionMap(
       issues: [configIssue('CONFIG_ASSET_NOT_FOUND', filePath, '', `已登记的成分图不存在：HTTP ${response.status}`)],
     }
   }
-  const bytes = new Uint8Array(await response.arrayBuffer())
+  let bytes: Uint8Array
+  try {
+    bytes = new Uint8Array(await response.arrayBuffer())
+  } catch {
+    return {
+      issues: [configIssue('CONFIG_ASSET_NOT_FOUND', filePath, '', '已登记的成分图无法加载')],
+    }
+  }
   const headerIssues = validateCompositionPngHeader(filePath, bytes)
   if (headerIssues.length > 0) return { issues: headerIssues }
   try {

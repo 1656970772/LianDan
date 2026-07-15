@@ -1,5 +1,5 @@
 import { configIssue, type ConfigIssue } from './errors'
-import type { DecodedCompositionMap } from './model'
+import type { DecodedCompositionMap, NormalizedMaterial } from './model'
 
 const COMPOSITION_MAP_WIDTH = 64
 const COMPOSITION_MAP_HEIGHT = 64
@@ -18,6 +18,57 @@ type PngHeader = Readonly<{
   bitDepth: number
   colorType: number
 }>
+
+export type M2AppearanceValidationTarget = Readonly<{
+  appearancePath: string
+  composition: DecodedCompositionMap
+}>
+
+export function selectM2AppearanceValidationTargets(
+  materials: readonly NormalizedMaterial[],
+  compositionMaps: readonly DecodedCompositionMap[],
+  requiredMaterialIds: readonly string[],
+  inventoryFilePath: string,
+): Readonly<{
+  targets: readonly M2AppearanceValidationTarget[]
+  issues: readonly ConfigIssue[]
+}> {
+  const requiredIds = new Set(requiredMaterialIds)
+  const compositionByPath = new Map(
+    compositionMaps.map((map) => [map.filePath, map] as const),
+  )
+  const issues: ConfigIssue[] = []
+  const targets: M2AppearanceValidationTarget[] = []
+
+  for (const material of materials) {
+    if (material.appearancePath === undefined) {
+      if (requiredIds.has(material.id)) {
+        issues.push(
+          configIssue(
+            'CONFIG_REQUIRED_FIELD',
+            inventoryFilePath,
+            '/inventoryBatches',
+            `M2 库存材料 ${material.id} 必须登记 512×512 外观图`,
+          ),
+        )
+      }
+      continue
+    }
+    const composition = compositionByPath.get(material.compositionMapPath)
+    if (composition === undefined) {
+      throw new Error(`M2_APPEARANCE_COMPOSITION_MISSING:${material.compositionMapPath}`)
+    }
+    targets.push({
+      appearancePath: material.appearancePath,
+      composition,
+    })
+  }
+
+  return {
+    targets: Object.freeze(targets),
+    issues: Object.freeze(issues),
+  }
+}
 
 function readPngHeader(bytes: Uint8Array): PngHeader | null {
   const lastChunkOffset = bytes.length - 12

@@ -12,6 +12,7 @@ import {
   type PngDecoder,
 } from './browser-loader'
 import {
+  selectM2AppearanceValidationTargets,
   validateAppearancePngHeader,
   validateM2AppearanceMap,
 } from './assets'
@@ -155,64 +156,75 @@ export async function loadBrowserM2GameplayConfig(
   if (!gameplayResult.ok) return gameplayResult
 
   const decoder = options.decodePng ?? decodeBrowserPng
-  const compositionByPath = new Map(
-    baseResult.compositionMaps.map((map) => [map.filePath, map] as const),
-  )
-  const materialsById = new Map(
-    baseResult.config.materials.map((material) => [material.id, material] as const),
-  )
-  const requiredMaterialIds = new Set(
+  const appearanceSelection = selectM2AppearanceValidationTargets(
+    baseResult.config.materials,
+    baseResult.compositionMaps,
     gameplayResult.config.prototype.inventoryBatches.map(
       (batch) => batch.materialDefinitionId,
     ),
+    raw.prototype.filePath,
   )
-  const appearanceIssues: ConfigIssue[] = []
-  for (const materialId of requiredMaterialIds) {
-    const material = materialsById.get(materialId)!
-    if (material.appearancePath === undefined) {
+  const appearanceIssues: ConfigIssue[] = [...appearanceSelection.issues]
+  for (const target of appearanceSelection.targets) {
+    let response: Response
+    try {
+      response = await fetcher(target.appearancePath)
+    } catch {
       appearanceIssues.push(
         configIssue(
-          'CONFIG_REQUIRED_FIELD',
-          raw.prototype.filePath,
-          '/inventoryBatches',
-          `M2 库存材料 ${materialId} 必须登记 512×512 外观图`,
+          'CONFIG_ASSET_NOT_FOUND',
+          target.appearancePath,
+          '',
+          '已登记的材料外观图无法加载',
         ),
       )
       continue
     }
+    if (!response.ok) {
+      appearanceIssues.push(
+        configIssue(
+          'CONFIG_ASSET_NOT_FOUND',
+          target.appearancePath,
+          '',
+          `已登记的材料外观图不存在：HTTP ${response.status}`,
+        ),
+      )
+      continue
+    }
+    let bytes: Uint8Array
     try {
-      const response = await fetcher(material.appearancePath)
-      if (!response.ok) {
-        appearanceIssues.push(
-          configIssue(
-            'CONFIG_ASSET_NOT_FOUND',
-            material.appearancePath,
-            '',
-            `已登记的材料外观图不存在：HTTP ${response.status}`,
-          ),
-        )
-        continue
-      }
-      const bytes = new Uint8Array(await response.arrayBuffer())
-      const headerIssues = validateAppearancePngHeader(material.appearancePath, bytes)
-      if (headerIssues.length > 0) {
-        appearanceIssues.push(...headerIssues)
-        continue
-      }
-      const decoded = await decoder(bytes, material.appearancePath)
+      bytes = new Uint8Array(await response.arrayBuffer())
+    } catch {
+      appearanceIssues.push(
+        configIssue(
+          'CONFIG_ASSET_NOT_FOUND',
+          target.appearancePath,
+          '',
+          '已登记的材料外观图无法加载',
+        ),
+      )
+      continue
+    }
+    const headerIssues = validateAppearancePngHeader(target.appearancePath, bytes)
+    if (headerIssues.length > 0) {
+      appearanceIssues.push(...headerIssues)
+      continue
+    }
+    try {
+      const decoded = await decoder(bytes, target.appearancePath)
       appearanceIssues.push(
         ...validateM2AppearanceMap(
           decoded,
-          compositionByPath.get(material.compositionMapPath)!,
+          target.composition,
         ),
       )
     } catch {
       appearanceIssues.push(
         configIssue(
           'CONFIG_ASSET_INVALID_PNG',
-          material.appearancePath,
+          target.appearancePath,
           '',
-          '已登记的材料外观图 PNG 加载或解码失败',
+          '已登记的材料外观图 PNG 解码失败',
         ),
       )
     }

@@ -4,6 +4,19 @@ import type { M2Snapshot } from '../src/game/extraction/contracts.ts'
 
 const FIRST_BATCH_ID = 'red_whisker_ginseng_fresh_wild_10'
 const FIRST_BATCH_SELECTOR = `button[data-inventory-batch-id="${FIRST_BATCH_ID}"]`
+type FireStartupSample = Readonly<{
+  frame: string | null
+  frontDistance: string | null
+  startup: string | null
+  state: string | null
+}>
+type FireStartupTrace = {
+  observer: MutationObserver
+  samples: FireStartupSample[]
+}
+type FireStartupTraceWindow = typeof window & {
+  __LIANDAN_FIRE_STARTUP_TRACE__?: FireStartupTrace
+}
 
 async function openM2(page: Page): Promise<M2Snapshot> {
   await page.goto('/')
@@ -38,6 +51,76 @@ async function aimAtMaterial(page: Page): Promise<void> {
     bounds.x + bounds.width * (aim.materialX / aim.logicalWidth),
     bounds.y + bounds.height * (aim.materialY / aim.logicalHeight),
   )
+}
+
+async function beginFireStartupTrace(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const target = document.querySelector<HTMLCanvasElement>(
+      'canvas[data-scene="m2-extraction"]',
+    )
+    if (target === null) throw new Error('M2_CANVAS_NOT_FOUND')
+
+    const traceWindow = window as FireStartupTraceWindow
+    traceWindow.__LIANDAN_FIRE_STARTUP_TRACE__?.observer.disconnect()
+    const samples: FireStartupSample[] = []
+    const record = (): void => {
+      const sample: FireStartupSample = {
+        frame: target.dataset.fireFrame ?? null,
+        frontDistance: target.dataset.fireFrontDistance ?? null,
+        startup: target.dataset.fireStartup ?? null,
+        state: target.dataset.fireState ?? null,
+      }
+      const previous = samples.at(-1)
+      if (
+        previous?.frame === sample.frame &&
+        previous.frontDistance === sample.frontDistance &&
+        previous.startup === sample.startup &&
+        previous.state === sample.state
+      ) {
+        return
+      }
+      samples.push(sample)
+    }
+    const observer = new MutationObserver(record)
+    observer.observe(target, {
+      attributeFilter: [
+        'data-fire-frame',
+        'data-fire-front-distance',
+        'data-fire-startup',
+        'data-fire-state',
+      ],
+      attributes: true,
+    })
+    record()
+    traceWindow.__LIANDAN_FIRE_STARTUP_TRACE__ = { observer, samples }
+  })
+}
+
+async function endFireStartupTrace(page: Page): Promise<FireStartupSample[]> {
+  return page.evaluate(() => {
+    const traceWindow = window as FireStartupTraceWindow
+    const trace = traceWindow.__LIANDAN_FIRE_STARTUP_TRACE__
+    if (trace === undefined) throw new Error('M2_FIRE_STARTUP_TRACE_MISSING')
+    trace.observer.disconnect()
+    delete traceWindow.__LIANDAN_FIRE_STARTUP_TRACE__
+    return trace.samples
+  })
+}
+
+function expectRapidFireStartup(samples: readonly FireStartupSample[]): void {
+  const emergingFronts = samples
+    .filter(
+      (sample) =>
+        sample.state === 'emerging' &&
+        sample.startup === 'emerging' &&
+        sample.frontDistance !== null,
+    )
+    .map((sample) => Number(sample.frontDistance))
+    .filter(Number.isFinite)
+  expect(emergingFronts.length).toBeGreaterThan(1)
+  expect(emergingFronts[0]).toBeGreaterThanOrEqual(0)
+  expect(emergingFronts[0]).toBeLessThan(300)
+  expect(emergingFronts.some((front) => front > emergingFronts[0]!)).toBe(true)
 }
 
 async function alignCollectorWithMaterial(page: Page): Promise<void> {
@@ -237,38 +320,27 @@ test.describe('M2/M4 多药材萃取闭环', () => {
     const canvas = page.locator('canvas[data-scene="m2-extraction"]')
     await page.locator('button[data-fire-source-id="basic-fire"]').click()
     await aimAtMaterial(page)
+    await beginFireStartupTrace(page)
     await page.mouse.down()
 
-    await expect(canvas).toHaveAttribute('data-fire-state', 'emerging')
-    await expect(canvas).toHaveAttribute('data-fire-startup', 'emerging')
-    const firstFront = Number(
-      await canvas.getAttribute('data-fire-front-distance'),
-    )
-    expect(firstFront).toBeGreaterThanOrEqual(0)
-    expect(firstFront).toBeLessThan(300)
-
-    await expect
-      .poll(async () =>
-        Number(await canvas.getAttribute('data-fire-front-distance')),
-      )
-      .toBeGreaterThan(firstFront)
     await expect(canvas).toHaveAttribute('data-fire-state', 'animated', {
       timeout: 1_000,
     })
     await expect(canvas).toHaveAttribute('data-fire-startup', 'steady')
     await expect(canvas).toHaveAttribute('data-fire-front-distance', 'full')
+    expectRapidFireStartup(await endFireStartupTrace(page))
 
     await page.mouse.up()
     await expect(canvas).toHaveAttribute('data-fire-state', 'off')
     await expect(canvas).not.toHaveAttribute('data-fire-startup')
     await expect(canvas).not.toHaveAttribute('data-fire-front-distance')
 
+    await beginFireStartupTrace(page)
     await page.mouse.down()
-    await expect(canvas).toHaveAttribute('data-fire-state', 'emerging')
-    await expect(canvas).toHaveAttribute(
-      'data-fire-front-distance',
-      /^(?:0|[1-9]\d{0,2})(?:\.\d)?$/,
-    )
+    await expect(canvas).toHaveAttribute('data-fire-state', 'animated', {
+      timeout: 1_000,
+    })
+    expectRapidFireStartup(await endFireStartupTrace(page))
     await page.mouse.up()
   })
 
