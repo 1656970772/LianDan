@@ -8,6 +8,7 @@ export type {
   InteractionProfileId,
   MaterialDefinitionId,
   MaterialInstanceId,
+  MaterialVolumeChangeDelta,
   NaturalLossDelta,
   PearlBirthDelta,
   PearlEntity,

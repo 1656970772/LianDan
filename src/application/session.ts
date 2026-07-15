@@ -3,6 +3,7 @@ import {
   applyRuleCommand,
   createDomainState,
   deriveCanFinish,
+  evaluateExtractionState,
   isRuleCommandAllowed,
   settleRequestedCompletion,
   stopSpraying,
@@ -145,6 +146,36 @@ function createDomainEvents(
     events.push({ type: 'PearlBorn', tick, ...birth })
   }
 
+  for (const activation of [...(delta.shieldActivations ?? [])].sort(
+    (left, right) => left.pearlId.localeCompare(right.pearlId),
+  )) {
+    events.push({ type: 'PearlShieldActivated', tick, pearlId: activation.pearlId })
+  }
+
+  const damagedPearlIds = new Set(
+    delta.pearlVolumeChanges.map(({ pearlId }) => pearlId),
+  )
+  for (const loss of delta.naturalLosses) {
+    if (loss.sourceKind === 'pearl') damagedPearlIds.add(loss.pearlId)
+  }
+  for (const pearlId of [...damagedPearlIds].sort()) {
+    const previousVolume = before.ledger.pearlVolumes[pearlId]
+    const currentVolume = after.ledger.pearlVolumes[pearlId]
+    if (
+      previousVolume !== undefined &&
+      currentVolume !== undefined &&
+      currentVolume < previousVolume
+    ) {
+      events.push({
+        type: 'PearlDamaged',
+        tick,
+        pearlId,
+        previousVolume,
+        currentVolume,
+      })
+    }
+  }
+
   const terminalCandidates = new Map<string, Array<'caught' | 'missed' | 'burned'>>()
   for (const terminal of delta.terminalOutcomes) {
     if (before.ledger.terminalPearls[terminal.pearlId] !== undefined) continue
@@ -159,8 +190,24 @@ function createDomainEvents(
     }
   }
 
+  if (before.lossWarningLevel !== after.lossWarningLevel) {
+    events.push({
+      type: 'LossWarningChanged',
+      tick,
+      previousLevel: before.lossWarningLevel,
+      currentLevel: after.lossWarningLevel,
+    })
+  }
+
   if (!deriveCanFinish(before) && deriveCanFinish(after)) {
     events.push({ type: 'CanFinish', tick })
+  }
+  if (
+    before.status !== 'failed' &&
+    after.status === 'failed' &&
+    after.failureResult !== null
+  ) {
+    events.push({ type: 'ExtractionFailed', tick, result: after.failureResult })
   }
   if (before.status !== 'completed' && after.status === 'completed') {
     events.push({ type: 'ExtractionCompleted', tick })
@@ -687,6 +734,10 @@ export class ExtractionApplication {
         if (nextState !== undefined) this.#domainState = nextState
 
         if (phase === 9) {
+          this.#domainState = evaluateExtractionState(
+            this.#domainState,
+            this.#rules,
+          )
           this.#domainState = settleRequestedCompletion(this.#domainState)
         }
       }
@@ -847,6 +898,8 @@ export class ExtractionApplication {
           ? this.#domainState.fireSize
           : 0,
       canFinish: deriveCanFinish(this.#domainState),
+      lossWarningLevel: this.#domainState.lossWarningLevel,
+      failureResult: this.#domainState.failureResult,
       paused: pauseReasons.length > 0,
       pauseReasons,
       restartConfirmation: this.#restartConfirmation,

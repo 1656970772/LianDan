@@ -1,4 +1,8 @@
-import type { PearlType } from './model.ts'
+import type {
+  ExtractionFailureResult,
+  LossWarningLevel,
+  PearlType,
+} from './model.ts'
 
 export type DomainEvent =
   | Readonly<{
@@ -22,6 +26,29 @@ export type DomainEvent =
       type: 'PearlCaught' | 'PearlMissed' | 'PearlBurned'
       tick: number
       pearlId: string
+    }>
+  | Readonly<{
+      type: 'PearlShieldActivated'
+      tick: number
+      pearlId: string
+    }>
+  | Readonly<{
+      type: 'PearlDamaged'
+      tick: number
+      pearlId: string
+      previousVolume: number
+      currentVolume: number
+    }>
+  | Readonly<{
+      type: 'LossWarningChanged'
+      tick: number
+      previousLevel: LossWarningLevel
+      currentLevel: LossWarningLevel
+    }>
+  | Readonly<{
+      type: 'ExtractionFailed'
+      tick: number
+      result: ExtractionFailureResult
     }>
   | Readonly<{
       type: 'CanFinish' | 'ExtractionCompleted'

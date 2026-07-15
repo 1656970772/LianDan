@@ -67,8 +67,10 @@ export interface NormalizedM2FireSource {
 
 export interface NormalizedM2PearlType {
   readonly id: string
-  readonly pearlType: 'medicinalLiquid'
+  readonly pearlType: 'medicinalLiquid' | 'slag' | 'impurity'
   readonly standardRadius: number
+  readonly color: string
+  readonly outlineColor: string
   readonly spawnVelocity: Readonly<{
     minX: number
     maxX: number
@@ -79,6 +81,11 @@ export interface NormalizedM2PearlType {
   readonly drift: number
   readonly maxSpeed: number
   readonly materialRestitution: number
+  readonly wallRestitution: number
+  readonly fireProtectionSeconds: number
+  readonly resetProtectionOnExit: boolean
+  readonly burnDurationSeconds: number
+  readonly thrustAcceleration: number
 }
 
 export interface NormalizedM2Collector {
@@ -97,7 +104,7 @@ export interface NormalizedM2GameplayConfig {
   readonly schemaVersion: 1
   readonly prototype: NormalizedM2Prototype
   readonly fireSources: readonly NormalizedM2FireSource[]
-  readonly pearlType: NormalizedM2PearlType
+  readonly pearlTypes: readonly NormalizedM2PearlType[]
   readonly collector: NormalizedM2Collector
 }
 

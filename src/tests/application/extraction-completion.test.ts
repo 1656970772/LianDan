@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { ExtractionRuntime } from '../../application/extraction-runtime.ts'
+import { loadAndValidatePublicM2GameplayConfig } from '../../config/node-m2-gameplay-loader.ts'
 import type { PrototypeRules } from '../../domain/index.ts'
+import { createM2RuntimeConfiguration } from '../../game/extraction/runtime-config.ts'
 import {
   ExtractionSimulation,
   type ExtractionSimulationConfig,
@@ -17,8 +19,14 @@ const rules: PrototypeRules = {
       materialDefinitionId: 'material.herb',
       servings: 1,
       volumePerServing: 1,
+      medicinalLiquidVolumePerServing: 1,
     },
   ],
+  settlement: {
+    warningThresholds: [0.5, 0.65],
+    failureThreshold: 0.7,
+    slagUnitVolume: 100,
+  },
 }
 
 function simulationConfig(): ExtractionSimulationConfig {
@@ -33,6 +41,11 @@ function simulationConfig(): ExtractionSimulationConfig {
     driftX: 0,
     maxSpeed: 40,
     materialRestitution: 0.2,
+    wallRestitution: 0.2,
+    fireProtectionSeconds: 10,
+    resetProtectionOnExit: true,
+    burnDurationSeconds: 60,
+    thrustAcceleration: 0,
   }
   return {
     seed: 42,
@@ -40,6 +53,8 @@ function simulationConfig(): ExtractionSimulationConfig {
     fixedDeltaSeconds: 1 / 30,
     dissolutionVolumePerTick: 0.1,
     exposureProbeDistance: 2,
+    naturalLossRatePerMinute: 0,
+    safeZoneY: 112,
     fireFlow: {
       geometry: {
         columns: 16,
@@ -91,6 +106,84 @@ function simulationConfig(): ExtractionSimulationConfig {
 }
 
 describe('M2 application + ExtractionSimulation 完成闭环', () => {
+  it('M3 正式三成分图在自然损耗后不会让领域与模拟材料余量分叉', async () => {
+    const loaded = await loadAndValidatePublicM2GameplayConfig(process.cwd())
+    if (!loaded.ok) throw new Error(JSON.stringify(loaded.issues))
+    const production = createM2RuntimeConfiguration(
+      loaded.config,
+      loaded.compositionMaps,
+    )
+    const runtime = new ExtractionRuntime({
+      rules: production.rules,
+      simulation: new ExtractionSimulation(production.simulation),
+      tickRateHz: loaded.config.base.parameters.simulation.fixedStepHz,
+      maxCatchUpSteps:
+        loaded.config.base.parameters.simulation.maxCatchUpSteps,
+    })
+
+    runtime.frame(0)
+    let frameTime = 34
+    for (let frame = 0; frame < 60; frame += 1) {
+      runtime.frame(frameTime)
+      frameTime += 34
+    }
+    const targetTick = runtime.snapshot().application.nextTick
+    runtime.captureRuleCommand({
+      type: 'PreselectMaterial',
+      payload: { inventoryBatchId: 'prototype-herb-batch' },
+      targetTick,
+    })
+    runtime.captureRuleCommand({
+      type: 'AddSelectedMaterial',
+      payload: {},
+      targetTick,
+    })
+    runtime.frame(frameTime)
+    frameTime += 34
+    const afterAddition = runtime.snapshot()
+    expect(afterAddition.domain.materialInstances).toHaveLength(1)
+    expect(afterAddition.simulation.materials[0]!.remainingVolume).toBe(
+      afterAddition.domain.materialInstances[0]!.remainingVolume,
+    )
+
+    expect(() => runtime.frame(frameTime)).not.toThrow()
+    expect(runtime.snapshot().application.nextTick).toBeGreaterThan(targetTick + 1)
+  })
+
+  it('M3 自然损耗提交后下一 tick 仍能同步同一材料并继续推进', () => {
+    const baseConfig = simulationConfig()
+    const runtime = new ExtractionRuntime({
+      rules,
+      simulation: new ExtractionSimulation({
+        ...baseConfig,
+        naturalLossRatePerMinute: 0.01,
+      }),
+      tickRateHz: 30,
+      maxCatchUpSteps: 5,
+    })
+
+    runtime.frame(0)
+    runtime.captureRuleCommand({
+      type: 'PreselectMaterial',
+      payload: { inventoryBatchId: 'batch.herb' },
+      targetTick: 0,
+    })
+    runtime.captureRuleCommand({
+      type: 'AddSelectedMaterial',
+      payload: {},
+      targetTick: 0,
+    })
+    runtime.frame(34)
+    const afterFirstLoss = runtime.snapshot().domain.materialInstances[0]!
+
+    expect(afterFirstLoss.remainingVolume).toBeLessThan(1)
+    expect(() => runtime.frame(68)).not.toThrow()
+    expect(runtime.snapshot().application.nextTick).toBeGreaterThan(1)
+    expect(
+      runtime.snapshot().domain.materialInstances[0]!.remainingVolume,
+    ).toBeLessThan(afterFirstLoss.remainingVolume)
+  })
+
   it('材料格清空且珠全部终结后，把权威材料体积归零并开放结束', () => {
     const simulation = new ExtractionSimulation(simulationConfig())
     const runtime = new ExtractionRuntime({
@@ -164,6 +257,7 @@ describe('M2 application + ExtractionSimulation 完成闭环', () => {
         {
           ...rules.inventoryBatches[0]!,
           volumePerServing: tinyVolume,
+          medicinalLiquidVolumePerServing: tinyVolume,
         },
       ],
     }

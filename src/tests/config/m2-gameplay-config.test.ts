@@ -25,6 +25,11 @@ const baseConfig: NormalizedConfig = {
       fullObstacleThreshold: 0.95,
     },
     dissolution: { volumePerTick: 0.18, exposureProbeDistance: 18 },
+    loss: {
+      naturalRatePerMinute: 0.01,
+      warningThresholds: [0.5, 0.65],
+      failureThreshold: 0.7,
+    },
   },
   materials: [
     {
@@ -35,6 +40,28 @@ const baseConfig: NormalizedConfig = {
       appearancePath: '/assets/materials/moon-leaf.png',
     },
   ],
+}
+
+function validPearlTypes() {
+  const shared = {
+    color: '#78E6D0',
+    outlineColor: '#D9FFF6',
+    spawnVelocity: { minX: -45, maxX: 45, minY: 60, maxY: 120 },
+    gravity: 350,
+    drift: 12,
+    maxSpeed: 500,
+    materialRestitution: 0.25,
+    wallRestitution: 0.5,
+    fireProtectionSeconds: 0.5,
+    resetProtectionOnExit: true,
+    burnDurationSeconds: 2.5,
+    thrustAcceleration: 500,
+  }
+  return [
+    { ...shared, id: 'medicinal-liquid', pearlType: 'medicinalLiquid', standardRadius: 24 },
+    { ...shared, id: 'slag', pearlType: 'slag', standardRadius: 22 },
+    { ...shared, id: 'impurity', pearlType: 'impurity', standardRadius: 20 },
+  ]
 }
 
 function rawM2(): RawM2GameplayConfig {
@@ -111,18 +138,7 @@ function rawM2(): RawM2GameplayConfig {
       filePath: '/config/m2/pearl-types.json',
       value: {
         schemaVersion: 1,
-        pearlTypes: [
-          {
-            id: 'medicinal-liquid',
-            pearlType: 'medicinalLiquid',
-            standardRadius: 24,
-            spawnVelocity: { minX: -45, maxX: 45, minY: 60, maxY: 120 },
-            gravity: 350,
-            drift: 12,
-            maxSpeed: 500,
-            materialRestitution: 0.25,
-          },
-        ],
+        pearlTypes: validPearlTypes(),
       },
     },
     collector: {
@@ -165,10 +181,18 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
           inventoryBatches: [{ materialDefinitionId: 'moon-leaf' }],
         },
         fireSources: [{ id: 'basic-fire' }],
-        pearlType: { pearlType: 'medicinalLiquid', materialRestitution: 0.25 },
+        pearlTypes: expect.any(Array),
         collector: { initialX: 800 },
       },
     })
+    if (result.ok) {
+      expect(result.config.pearlTypes.map(({ pearlType }) => pearlType)).toEqual([
+        'medicinalLiquid',
+        'slag',
+        'impurity',
+      ])
+      expect(result.config.pearlTypes[0]?.materialRestitution).toBe(0.25)
+    }
     if (result.ok) {
       expect(Object.isFrozen(result.config)).toBe(true)
       expect(Object.isFrozen(result.config.prototype.materialPlacement)).toBe(true)
@@ -245,6 +269,36 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
       ok: false,
       issues: [expect.objectContaining({ code: 'CONFIG_DUPLICATE_LOGICAL_KEY' })],
     })
+  })
+
+  it('拒绝重复珠类型，保证三类配置各有且仅有一项', () => {
+    const raw = rawM2()
+    const pearlTypes = raw.pearlTypes.value as {
+      pearlTypes: Array<{ pearlType: string }>
+    }
+    pearlTypes.pearlTypes[1]!.pearlType = 'medicinalLiquid'
+
+    const result = validateAndNormalizeM2GameplayConfig(
+      raw,
+      loadM2GameplayTestSchemaBundle(),
+      baseConfig,
+      '/config/config-set.json',
+    )
+    expect(result).toMatchObject({ ok: false })
+    if (!result.ok) {
+      expect(result.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'CONFIG_SCHEMA_VIOLATION',
+            fieldPath: '/pearlTypes/1/pearlType',
+          }),
+          expect.objectContaining({
+            code: 'CONFIG_SCHEMA_VIOLATION',
+            fieldPath: '/pearlTypes',
+          }),
+        ]),
+      )
+    }
   })
 
   it('wheel 步长不限制连续滑条可表达的初始火力', () => {

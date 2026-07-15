@@ -148,6 +148,42 @@
         }
       },
       "additionalProperties": false
+    },
+    "loss": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "naturalRatePerMinute": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 0.01,
+          "x-owner": "parameters.loss",
+          "x-displayNameZh": "药液每分钟自然流失比例"
+        },
+        "warningThresholds": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number", "minimum": 0, "maximum": 1 }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2,
+          "default": [0.5, 0.65],
+          "x-owner": "parameters.loss",
+          "x-displayNameZh": "两级流失警告阈值"
+        },
+        "failureThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "x-owner": "parameters.loss",
+          "x-displayNameZh": "药液流失失败阈值"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

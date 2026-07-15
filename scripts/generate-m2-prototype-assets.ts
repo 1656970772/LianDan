@@ -14,6 +14,8 @@ const APPEARANCE_SIZE = 512
 const APPEARANCE_SCALE = APPEARANCE_SIZE / COMPOSITION_SIZE
 const OUTLINE_WIDTH = 5
 const MEDICINAL_LIQUID_RGBA = [0, 255, 255, 255] as const
+const SLAG_RGBA = [128, 128, 128, 255] as const
+const IMPURITY_RGBA = [128, 0, 128, 255] as const
 const OUTLINE_RGBA = [28, 42, 35, 255] as const
 const INNER_OUTLINE_RGBA = [42, 64, 47, 255] as const
 const LEAF_PALETTE = [
@@ -63,12 +65,21 @@ export function normalizePrototypeComposition(source: PNG): PNG {
   })
 
   for (let offset = 0; offset < source.data.length; offset += 4) {
+    const pixelIndex = offset / 4
+    const x = pixelIndex % COMPOSITION_SIZE
+    const y = Math.floor(pixelIndex / COMPOSITION_SIZE)
+    const component =
+      (x * 7 + y * 11) % 29 <= 1
+        ? IMPURITY_RGBA
+        : (x * 5 + y * 3) % 9 <= 1
+          ? SLAG_RGBA
+          : MEDICINAL_LIQUID_RGBA
     setPixel(
       normalized,
       offset,
       source.data[offset + 3] === 0
         ? ([0, 0, 0, 0] as const)
-        : MEDICINAL_LIQUID_RGBA,
+        : component,
     )
   }
 

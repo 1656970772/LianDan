@@ -14,8 +14,14 @@ const rules: PrototypeRules = {
       materialDefinitionId: 'material.herb',
       servings: 1,
       volumePerServing: 1,
+      medicinalLiquidVolumePerServing: 1,
     },
   ],
+  settlement: {
+    warningThresholds: [0.5, 0.65],
+    failureThreshold: 0.7,
+    slagUnitVolume: 100,
+  },
 }
 
 function simulationConfig(): ExtractionSimulationConfig {
@@ -27,6 +33,8 @@ function simulationConfig(): ExtractionSimulationConfig {
     fixedDeltaSeconds: 1 / 30,
     dissolutionVolumePerTick: 1,
     exposureProbeDistance: 2,
+    naturalLossRatePerMinute: 0,
+    safeZoneY: 112,
     fireFlow: {
       geometry: {
         columns: 16,
@@ -72,6 +80,11 @@ function simulationConfig(): ExtractionSimulationConfig {
         driftX: 0,
         maxSpeed: 100,
         materialRestitution: 0.25,
+        wallRestitution: 0.25,
+        fireProtectionSeconds: 10,
+        resetProtectionOnExit: true,
+        burnDurationSeconds: 60,
+        thrustAcceleration: 0,
       },
       slag: {
         radiusAtStandardVolume: 3,
@@ -80,6 +93,11 @@ function simulationConfig(): ExtractionSimulationConfig {
         driftX: 0,
         maxSpeed: 100,
         materialRestitution: 0.25,
+        wallRestitution: 0.25,
+        fireProtectionSeconds: 10,
+        resetProtectionOnExit: true,
+        burnDurationSeconds: 60,
+        thrustAcceleration: 0,
       },
       impurity: {
         radiusAtStandardVolume: 3,
@@ -88,6 +106,11 @@ function simulationConfig(): ExtractionSimulationConfig {
         driftX: 0,
         maxSpeed: 100,
         materialRestitution: 0.25,
+        wallRestitution: 0.25,
+        fireProtectionSeconds: 10,
+        resetProtectionOnExit: true,
+        burnDurationSeconds: 60,
+        thrustAcceleration: 0,
       },
     },
     collector: {

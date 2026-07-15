@@ -446,6 +446,7 @@ describe('权威 tick phase 与原子账本提交', () => {
         materialDefinitionId: 'material.flower',
         servings: 2,
         volumePerServing: 8,
+        medicinalLiquidVolumePerServing: 8,
       },
     ],
   }
@@ -766,6 +767,97 @@ describe('权威 tick phase 与原子账本提交', () => {
       { tick: 2, types: ['PearlCaught', 'CanFinish'] },
       { tick: 3, types: ['ExtractionCompleted'] },
     ])
+  })
+
+  it('M3 发布护盾、伤害、损耗警告与失败结算语义事件', () => {
+    const shieldState = extractingState()
+    const shieldApp = new ExtractionApplication(prototypeRules, {
+      domainState: {
+        ...shieldState,
+        ledger: {
+          ...shieldState.ledger,
+          pearlVolumes: { 'pearl-1': 1 },
+          pearlSources: {
+            'pearl-1': {
+              sourceMaterialDefinitionId: 'material.herb',
+              sourceMaterialInstanceId: 'material-instance-1',
+              pearlType: 'medicinalLiquid',
+            },
+          },
+          theoreticalMedicinalVolumes: { 'material-instance-1': 10 },
+        },
+      },
+    })
+    const shieldEvents: string[] = []
+    shieldApp.beforePhase0(0)
+    shieldApp.runPreparedTick({
+      buildSimulationDelta: () => ({
+        tick: 0,
+        dissolutions: [],
+        births: [],
+        pearlVolumeChanges: [
+          { pearlId: 'pearl-1', previousVolume: 1, currentVolume: 0.5 },
+        ],
+        terminalOutcomes: [],
+        naturalLosses: [],
+        inheritedLosses: [],
+        shieldActivations: [{ pearlId: 'pearl-1' }],
+      }),
+      onTickCommitted: (commit) => {
+        shieldEvents.push(...commit.events.map(({ type }) => type))
+      },
+    })
+    expect(shieldEvents).toEqual(['PearlShieldActivated', 'PearlDamaged'])
+
+    const failureState = extractingState()
+    const failureApp = new ExtractionApplication(prototypeRules, {
+      domainState: {
+        ...failureState,
+        materialInstances: [
+          {
+            materialInstanceId: 'material-instance-1',
+            materialDefinitionId: 'material.herb',
+            inventoryBatchId: 'batch.herb',
+            initialVolume: 10,
+            remainingVolume: 10,
+          },
+        ],
+        ledger: {
+          ...failureState.ledger,
+          theoreticalMedicinalVolumes: { 'material-instance-1': 10 },
+        },
+      },
+    })
+    let failureEvents: readonly string[] = []
+    failureApp.beforePhase0(0)
+    failureApp.runPreparedTick({
+      buildSimulationDelta: () => ({
+        tick: 0,
+        dissolutions: [],
+        births: [],
+        pearlVolumeChanges: [],
+        terminalOutcomes: [],
+        naturalLosses: [
+          {
+            sourceKind: 'materialCell',
+            stableEntityId: 'cell:material-instance-1:0000',
+            materialInstanceId: 'material-instance-1',
+            pearlType: 'medicinalLiquid',
+            volume: 7.1,
+          },
+        ],
+        inheritedLosses: [],
+      }),
+      onTickCommitted: (commit) => {
+        failureEvents = commit.events.map(({ type }) => type)
+      },
+    })
+    expect(failureEvents).toEqual(['LossWarningChanged', 'ExtractionFailed'])
+    expect(failureApp.getReadModel()).toMatchObject({
+      status: 'failed',
+      lossWarningLevel: 2,
+      failureResult: { reason: 'excessiveMedicinalLoss' },
+    })
   })
 
   it('phase 0 投药回调抛错时回滚 tick 快照，并可在同一 prepared boundary 完整重试一次', () => {

@@ -69,12 +69,18 @@ describe('validateAndNormalizeConfigSet', () => {
         volumePerTick: 0.18,
         exposureProbeDistance: 18,
       },
+      loss: {
+        naturalRatePerMinute: 0.01,
+        warningThresholds: [0.5, 0.65],
+        failureThreshold: 0.7,
+      },
     })
     expect(config.materials[0]?.targetPearlCount).toBe(300)
     expect(Object.isFrozen(config)).toBe(true)
     expect(Object.isFrozen(config.parameters)).toBe(true)
     expect(Object.isFrozen(config.parameters.simulation)).toBe(true)
     expect(Object.isFrozen(config.parameters.flowField)).toBe(true)
+    expect(Object.isFrozen(config.parameters.loss)).toBe(true)
     expect(Object.isFrozen(config.materials)).toBe(true)
     expect(Object.isFrozen(config.materials[0])).toBe(true)
   })
@@ -181,6 +187,11 @@ describe('validateAndNormalizeConfigSet', () => {
         volumePerTick: 0.3,
         exposureProbeDistance: 12,
       },
+      loss: {
+        naturalRatePerMinute: 0.02,
+        warningThresholds: [0.4, 0.6],
+        failureThreshold: 0.75,
+      },
     }
     raw.materials[0]!.value = {
       ...(raw.materials[0]!.value as object),
@@ -209,6 +220,11 @@ describe('validateAndNormalizeConfigSet', () => {
       dissolution: {
         volumePerTick: 0.3,
         exposureProbeDistance: 12,
+      },
+      loss: {
+        naturalRatePerMinute: 0.02,
+        warningThresholds: [0.4, 0.6],
+        failureThreshold: 0.75,
       },
     })
     expect(config.materials[0]?.targetPearlCount).toBe(720)
@@ -247,6 +263,30 @@ describe('validateAndNormalizeConfigSet', () => {
           code: 'CONFIG_VALUE_OUT_OF_RANGE',
           fieldPath: '/slagUnitVolume',
           messageZh: '药渣单位体积必须是有限正数',
+        },
+      ],
+    })
+  })
+
+  it('拒绝一级、二级与失败阈值的顺序倒置', () => {
+    const raw = validRawConfigSet()
+    raw.parameters.value = {
+      schemaVersion: 1,
+      loss: {
+        warningThresholds: [0.5, 0.8],
+        failureThreshold: 0.7,
+      },
+    }
+
+    expect(
+      validateAndNormalizeConfigSet(raw, loadTestSchemaBundle()),
+    ).toMatchObject({
+      ok: false,
+      issues: [
+        {
+          code: 'CONFIG_VALUE_OUT_OF_RANGE',
+          fieldPath: '/loss/warningThresholds',
+          messageZh: '流失阈值必须满足一级警告 <= 二级警告 <= 失败阈值',
         },
       ],
     })

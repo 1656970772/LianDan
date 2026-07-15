@@ -6,7 +6,10 @@ import type {
 } from '../../config/index.ts'
 import {
   deriveActivePearlCount,
+  deriveNormalSlagQuantity,
   type DomainEvent,
+  type PearlType,
+  type PrototypeRules,
   type RuleCommand,
 } from '../../domain/index.ts'
 import type {
@@ -125,6 +128,7 @@ function distanceFromSourceToStageEdge(
 export class M2ExtractionScene extends Phaser.Scene {
   readonly #options: M2ExtractionSceneOptions
   readonly #runtime: M2GameplayRuntime
+  readonly #rules: PrototypeRules
   readonly #theme
   readonly #fireConfig: FirePresentationConfig
   readonly #firePresentation: FirePresentation
@@ -183,6 +187,7 @@ export class M2ExtractionScene extends Phaser.Scene {
       options.config,
       options.compositionMaps,
     )
+    this.#rules = runtimeConfig.rules
     this.#runtime = new M2GameplayRuntime({
       rules: runtimeConfig.rules,
       simulationConfig: runtimeConfig.simulation,
@@ -336,7 +341,12 @@ export class M2ExtractionScene extends Phaser.Scene {
         max: 100,
       },
       isSpraying: runtime.application.isSpraying,
+      flameThrustEnabled: domain.flameThrustEnabled,
       canFinish: runtime.application.canFinish,
+      lossWarningLevel: runtime.application.lossWarningLevel,
+      caughtVolumes: { ...domain.ledger.caughtVolumes },
+      normalSlagQuantity: deriveNormalSlagQuantity(domain, this.#rules),
+      failureResult: runtime.application.failureResult,
       paused: runtime.application.paused,
       restartConfirmation: runtime.application.restartConfirmation,
       inventory,
@@ -817,25 +827,106 @@ export class M2ExtractionScene extends Phaser.Scene {
     const graphics = this.#pearlGraphics
     if (graphics === null) return
     graphics.clear()
+    let caughtIndex = 0
     for (const pearl of view.pearls) {
-      if (pearl.state !== 'active') continue
-      let outline = this.#dropletOutlines.get(pearl.radius)
-      if (outline === undefined) {
-        outline = createDropletOutline(
+      if (pearl.state === 'active') {
+        this.#drawPearl(
+          graphics,
+          pearl.pearlType,
+          pearl.position.x,
+          pearl.position.y,
           pearl.radius,
-          M2_DROPLET_PRESENTATION.droplet,
+          1,
         )
-        this.#dropletOutlines.set(pearl.radius, outline)
+        if (pearl.shield.active) {
+          graphics.lineStyle(3, colorNumber(this.#theme.focus), 0.82)
+          graphics.strokeCircle(
+            pearl.position.x,
+            pearl.position.y,
+            pearl.radius + 7,
+          )
+          graphics.lineStyle(1, 0xffffff, 0.4)
+          graphics.strokeCircle(
+            pearl.position.x - pearl.radius * 0.18,
+            pearl.position.y - pearl.radius * 0.18,
+            pearl.radius + 3,
+          )
+        }
+      } else if (pearl.state === 'caught') {
+        const columns = 7
+        const row = Math.floor(caughtIndex / columns)
+        const column = caughtIndex % columns
+        const x =
+          view.collector.center.x -
+          view.collector.width * 0.3 +
+          column * (view.collector.width * 0.1)
+        const y =
+          view.collector.center.y +
+          view.collector.height * 0.18 -
+          row * 5
+        this.#drawPearl(
+          graphics,
+          pearl.pearlType,
+          x,
+          y,
+          Math.max(3, Math.min(7, pearl.radius * 0.24)),
+          0.86,
+        )
+        caughtIndex += 1
       }
-      drawDroplet(
-        graphics,
-        pearl.position.x,
-        pearl.position.y,
-        pearl.radius,
-        outline,
-        M2_DROPLET_PRESENTATION,
-      )
     }
+  }
+
+  #drawPearl(
+    graphics: Phaser.GameObjects.Graphics,
+    pearlType: PearlType,
+    x: number,
+    y: number,
+    radius: number,
+    alpha: number,
+  ): void {
+    const config = this.#options.config.gameplay.pearlTypes.find(
+      (candidate) => candidate.pearlType === pearlType,
+    )
+    const fillColor = colorNumber(config?.color ?? '#FFFFFF')
+    const outlineColor = colorNumber(config?.outlineColor ?? '#FFFFFF')
+    if (pearlType === 'medicinalLiquid') {
+      let outline = this.#dropletOutlines.get(radius)
+      if (outline === undefined) {
+        outline = createDropletOutline(radius, M2_DROPLET_PRESENTATION.droplet)
+        this.#dropletOutlines.set(radius, outline)
+      }
+      drawDroplet(graphics, x, y, radius, outline, {
+        ...M2_DROPLET_PRESENTATION,
+        fillColor,
+        fillAlpha: M2_DROPLET_PRESENTATION.fillAlpha * alpha,
+        outlineColor,
+        outlineAlpha: M2_DROPLET_PRESENTATION.outlineAlpha * alpha,
+      })
+      return
+    }
+
+    const points = pearlType === 'slag'
+      ? [
+          new Phaser.Math.Vector2(x - radius * 0.82, y - radius * 0.18),
+          new Phaser.Math.Vector2(x - radius * 0.38, y - radius * 0.82),
+          new Phaser.Math.Vector2(x + radius * 0.48, y - radius * 0.66),
+          new Phaser.Math.Vector2(x + radius * 0.88, y + radius * 0.08),
+          new Phaser.Math.Vector2(x + radius * 0.24, y + radius * 0.82),
+          new Phaser.Math.Vector2(x - radius * 0.68, y + radius * 0.56),
+        ]
+      : [
+          new Phaser.Math.Vector2(x, y - radius),
+          new Phaser.Math.Vector2(x + radius * 0.72, y),
+          new Phaser.Math.Vector2(x, y + radius),
+          new Phaser.Math.Vector2(x - radius * 0.72, y),
+        ]
+    graphics.fillStyle(fillColor, 0.92 * alpha)
+    graphics.fillPoints(points, true, true)
+    graphics.lineStyle(2, outlineColor, 0.8 * alpha)
+    graphics.strokePoints(points, true, true)
+    graphics.fillStyle(0xffffff, 0.28 * alpha)
+    graphics.fillCircle(x - radius * 0.22, y - radius * 0.24, radius * 0.16)
   }
 
   #renderCollector(view: ExtractionSimulationReadView): void {
@@ -874,6 +965,37 @@ export class M2ExtractionScene extends Phaser.Scene {
           y: simulation.collector.center.y,
           life: 12,
           color: colorNumber(this.#theme.accent),
+        })
+      } else if (event.type === 'PearlShieldActivated') {
+        const pearl = simulation.pearls.find(
+          (candidate) => candidate.pearlId === event.pearlId,
+        )
+        if (pearl !== undefined) {
+          this.#eventSparks.push({
+            x: pearl.position.x,
+            y: pearl.position.y,
+            life: 11,
+            color: colorNumber(this.#theme.focus),
+          })
+        }
+      } else if (event.type === 'PearlDamaged' || event.type === 'PearlBurned') {
+        const pearl = simulation.pearls.find(
+          (candidate) => candidate.pearlId === event.pearlId,
+        )
+        if (pearl !== undefined) {
+          this.#eventSparks.push({
+            x: pearl.position.x,
+            y: pearl.position.y,
+            life: event.type === 'PearlBurned' ? 14 : 7,
+            color: colorNumber(this.#theme.danger),
+          })
+        }
+      } else if (event.type === 'ExtractionFailed') {
+        this.#eventSparks.push({
+          x: simulation.collector.center.x,
+          y: simulation.collector.center.y - 80,
+          life: 18,
+          color: colorNumber(this.#theme.danger),
         })
       } else if (event.type === 'CanFinish') {
         this.#eventSparks.push({
@@ -914,10 +1036,12 @@ export class M2ExtractionScene extends Phaser.Scene {
     canvas.dataset.equippedFireSourceId =
       snapshot.equippedFireSourceId ?? ''
     canvas.dataset.isSpraying = String(snapshot.isSpraying)
+    canvas.dataset.flameThrustEnabled = String(snapshot.flameThrustEnabled)
     canvas.dataset.canFinish = String(snapshot.canFinish)
+    canvas.dataset.lossWarningLevel = String(snapshot.lossWarningLevel)
     canvas.dataset.flowGeneration = String(snapshot.flowGeneration)
     canvas.dataset.fireRenderer = 'heat-field'
-    canvas.dataset.pearlRenderer = 'droplet'
+    canvas.dataset.pearlRenderer = 'typed-m3'
     canvas.dataset.activePearlCount = String(snapshot.activePearlCount)
     canvas.dataset.fireOcclusion = 'precise-geometry'
     canvas.dataset.remainingMaterialCells = String(

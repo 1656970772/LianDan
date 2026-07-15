@@ -39,6 +39,11 @@ export interface NormalizedParameters {
     readonly volumePerTick: number
     readonly exposureProbeDistance: number
   }>
+  readonly loss: Readonly<{
+    readonly naturalRatePerMinute: number
+    readonly warningThresholds: readonly [number, number]
+    readonly failureThreshold: number
+  }>
 }
 
 export interface NormalizedMaterial {

@@ -320,18 +320,42 @@ function collectSemanticIssues(
     )
   }
 
-  const pearlType = pearlDocument.pearlTypes[0]!
-  if (
-    pearlType.spawnVelocity.minX > pearlType.spawnVelocity.maxX ||
-    pearlType.spawnVelocity.minY > pearlType.spawnVelocity.maxY
-  ) {
-    issues.push(
-      semanticIssue(
-        raw.pearlTypes.filePath,
-        '/pearlTypes/0/spawnVelocity',
-        '药液珠生成速度最小值不得大于最大值',
-      ),
-    )
+  const requiredPearlTypes = new Set(['medicinalLiquid', 'slag', 'impurity'])
+  const seenPearlTypes = new Set<string>()
+  pearlDocument.pearlTypes.forEach((pearlType, index) => {
+    if (seenPearlTypes.has(pearlType.pearlType)) {
+      issues.push(
+        semanticIssue(
+          raw.pearlTypes.filePath,
+          `/pearlTypes/${index}/pearlType`,
+          `精灵珠类型 ${pearlType.pearlType} 不得重复`,
+        ),
+      )
+    }
+    seenPearlTypes.add(pearlType.pearlType)
+    if (
+      pearlType.spawnVelocity.minX > pearlType.spawnVelocity.maxX ||
+      pearlType.spawnVelocity.minY > pearlType.spawnVelocity.maxY
+    ) {
+      issues.push(
+        semanticIssue(
+          raw.pearlTypes.filePath,
+          `/pearlTypes/${index}/spawnVelocity`,
+          '精灵珠生成速度最小值不得大于最大值',
+        ),
+      )
+    }
+  })
+  for (const pearlType of requiredPearlTypes) {
+    if (!seenPearlTypes.has(pearlType)) {
+      issues.push(
+        semanticIssue(
+          raw.pearlTypes.filePath,
+          '/pearlTypes',
+          `三类精灵珠配置缺少 ${pearlType}`,
+        ),
+      )
+    }
   }
 
   const collectorHalfWidth = collector.width * 0.5
@@ -419,10 +443,10 @@ function normalize(raw: RawM2GameplayConfig): NormalizedM2GameplayConfig {
         ...source,
         origin: { ...source.origin },
       })),
-    pearlType: {
-      ...pearlTypes.pearlTypes[0]!,
-      spawnVelocity: { ...pearlTypes.pearlTypes[0]!.spawnVelocity },
-    },
+    pearlTypes: pearlTypes.pearlTypes.map((pearlType) => ({
+      ...pearlType,
+      spawnVelocity: { ...pearlType.spawnVelocity },
+    })),
     collector: {
       initialX: collector.initialX,
       y: collector.y,

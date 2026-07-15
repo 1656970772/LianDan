@@ -470,7 +470,11 @@ describe('SimulationDelta 原子提交', () => {
             volume: 1,
           },
         ],
-        inheritedLosses: [{ materialInstanceId: 'material-instance-1', volume: 2 }],
+        inheritedLosses: [{
+          materialInstanceId: 'material-instance-1',
+          theoreticalMedicinalVolume: 10,
+          volume: 2,
+        }],
       }),
     )
 
@@ -492,12 +496,175 @@ describe('SimulationDelta 原子提交', () => {
             volume: 1,
           },
         ],
-        inheritedLosses: [{ materialInstanceId: 'missing-material', volume: 2 }],
+        inheritedLosses: [{
+          materialInstanceId: 'missing-material',
+          theoreticalMedicinalVolume: 10,
+          volume: 2,
+        }],
       }),
     )
     expect(rejected).toMatchObject({ ok: false, error: 'SIM_DELTA_ENTITY_NOT_FOUND' })
     expect(rejected.state).toBe(original)
     expect(original.materialInstances[0]?.remainingVolume).toBe(10)
+  })
+
+  it('材料终值快照消除格体积求和尾差，但不能掩盖真实体积不守恒', () => {
+    const original = extractingState()
+    const naturalLoss = {
+      sourceKind: 'materialCell' as const,
+      stableEntityId: 'cell:material-instance-1:0',
+      materialInstanceId: 'material-instance-1',
+      pearlType: 'medicinalLiquid' as const,
+      volume: 1,
+    }
+    const accepted = commitSimulationDeltaCandidate(
+      original,
+      emptyDelta({
+        naturalLosses: [naturalLoss],
+        materialVolumeChanges: [
+          {
+            materialInstanceId: 'material-instance-1',
+            previousVolume: 10,
+            currentVolume: 9 + Number.EPSILON * 8,
+          },
+        ],
+      }),
+    )
+    expect(accepted.ok).toBe(true)
+    expect(accepted.state.materialInstances[0]!.remainingVolume).toBe(
+      9 + Number.EPSILON * 8,
+    )
+
+    const rejected = commitSimulationDeltaCandidate(
+      original,
+      emptyDelta({
+        naturalLosses: [naturalLoss],
+        materialVolumeChanges: [
+          {
+            materialInstanceId: 'material-instance-1',
+            previousVolume: 10,
+            currentVolume: 8,
+          },
+        ],
+      }),
+    )
+    expect(rejected).toMatchObject({
+      ok: false,
+      error: 'SIM_DELTA_VOLUME_MISMATCH',
+    })
+    expect(rejected.state).toBe(original)
+    expect(original.materialInstances[0]!.remainingVolume).toBe(10)
+  })
+
+  it.each([
+    {
+      outcome: 'caught' as const,
+      expected: {
+        caught: 0.4,
+        missed: 0,
+        slagPool: 0,
+      },
+    },
+    {
+      outcome: 'missed' as const,
+      expected: {
+        caught: 0,
+        missed: 0.4,
+        slagPool: 0.4,
+      },
+    },
+    {
+      outcome: 'burned' as const,
+      expected: {
+        caught: 0,
+        missed: 0,
+        slagPool: 0,
+      },
+    },
+  ])('部分灼烧后 $outcome 只进入一个结算去向', ({ outcome, expected }) => {
+    const original = extractingState()
+    const state: DomainState = {
+      ...original,
+      ledger: {
+        ...original.ledger,
+        pearlVolumes: { 'pearl-liquid': 1 },
+        pearlSources: {
+          'pearl-liquid': {
+            sourceMaterialDefinitionId: 'material.herb',
+            sourceMaterialInstanceId: 'material-instance-1',
+            pearlType: 'medicinalLiquid',
+          },
+        },
+      },
+    }
+    const currentVolume = outcome === 'burned' ? 0 : 0.4
+    const result = commitSimulationDeltaCandidate(
+      state,
+      emptyDelta({
+        pearlVolumeChanges: [
+          { pearlId: 'pearl-liquid', previousVolume: 1, currentVolume },
+        ],
+        terminalOutcomes: [{ pearlId: 'pearl-liquid', outcome }],
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.state.ledger.burnedMedicinalVolume).toBe(1 - currentVolume)
+    expect(result.state.ledger.caughtVolumes.medicinalLiquid).toBe(expected.caught)
+    expect(result.state.ledger.missedMedicinalVolume).toBe(expected.missed)
+    expect(result.state.ledger.slagPoolVolumes.medicinalLiquid).toBe(expected.slagPool)
+    expect(result.state.ledger.terminalPearls['pearl-liquid']).toBe(outcome)
+  })
+
+  it('三类接取体积分桶，药渣与杂质只形成容器污染而不进入药液流失', () => {
+    const original = extractingState()
+    const state: DomainState = {
+      ...original,
+      ledger: {
+        ...original.ledger,
+        pearlVolumes: { liquid: 1, slag: 2, impurity: 3 },
+        pearlSources: {
+          liquid: {
+            sourceMaterialDefinitionId: 'material.herb',
+            sourceMaterialInstanceId: 'material-instance-1',
+            pearlType: 'medicinalLiquid',
+          },
+          slag: {
+            sourceMaterialDefinitionId: 'material.herb',
+            sourceMaterialInstanceId: 'material-instance-1',
+            pearlType: 'slag',
+          },
+          impurity: {
+            sourceMaterialDefinitionId: 'material.herb',
+            sourceMaterialInstanceId: 'material-instance-1',
+            pearlType: 'impurity',
+          },
+        },
+      },
+    }
+    const result = commitSimulationDeltaCandidate(
+      state,
+      emptyDelta({
+        terminalOutcomes: [
+          { pearlId: 'liquid', outcome: 'caught' },
+          { pearlId: 'slag', outcome: 'caught' },
+          { pearlId: 'impurity', outcome: 'caught' },
+        ],
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.state.ledger.caughtVolumes).toEqual({
+      medicinalLiquid: 1,
+      slag: 2,
+      impurity: 3,
+    })
+    expect(result.state.ledger.missedMedicinalVolume).toBe(0)
+    expect(result.state.ledger.slagPoolVolumes).toEqual({
+      medicinalLiquid: 0,
+      slag: 0,
+      impurity: 0,
+    })
   })
 
   it('已有 phase 6 终态、归零缺 burned、未归零却携 burned 均拒绝自然流失', () => {

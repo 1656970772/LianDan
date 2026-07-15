@@ -16,6 +16,13 @@ export type InventoryBatchRule = Readonly<{
   materialDefinitionId: string
   servings: number
   volumePerServing: number
+  medicinalLiquidVolumePerServing: number
+}>
+
+export type ExtractionSettlementRules = Readonly<{
+  warningThresholds: readonly [number, number]
+  failureThreshold: number
+  slagUnitVolume: number
 }>
 
 export type PrototypeRules = Readonly<{
@@ -23,6 +30,7 @@ export type PrototypeRules = Readonly<{
   initialFireSize: number
   initialFireDirection: Vector2
   inventoryBatches: readonly InventoryBatchRule[]
+  settlement: ExtractionSettlementRules
 }>
 
 export type MaterialInstance = Readonly<{
@@ -31,6 +39,8 @@ export type MaterialInstance = Readonly<{
   inventoryBatchId: string
   initialVolume: number
   remainingVolume: number
+  theoreticalMedicinalVolume?: number
+  inheritedLossAtAddition?: number
 }>
 
 export type PearlSource = Readonly<{
@@ -40,6 +50,7 @@ export type PearlSource = Readonly<{
 }>
 
 export type VolumeByPearlType = Readonly<Partial<Record<PearlType, number>>>
+export type PearlTypeVolumes = Readonly<Record<PearlType, number>>
 
 export type DomainLedger = Readonly<{
   dissolvedVolumes: Readonly<Record<string, VolumeByPearlType>>
@@ -47,8 +58,21 @@ export type DomainLedger = Readonly<{
   pearlVolumes: Readonly<Record<string, number>>
   pearlSources: Readonly<Record<string, PearlSource>>
   terminalPearls: Readonly<Record<string, PearlTerminalOutcome>>
+  theoreticalMedicinalVolumes: Readonly<Record<string, number>>
   naturalLossVolume: number
   inheritedLossVolume: number
+  burnedMedicinalVolume: number
+  missedMedicinalVolume: number
+  caughtVolumes: PearlTypeVolumes
+  slagPoolVolumes: PearlTypeVolumes
+}>
+
+export type LossWarningLevel = 0 | 1 | 2
+
+export type ExtractionFailureResult = Readonly<{
+  reason: 'excessiveMedicinalLoss'
+  remainingEntityVolume: number
+  slagQuantity: number
 }>
 
 export type DomainState = Readonly<{
@@ -64,6 +88,8 @@ export type DomainState = Readonly<{
   containerAxis: number
   flameThrustEnabled: boolean
   finishRequested: boolean
+  lossWarningLevel: LossWarningLevel
+  failureResult: ExtractionFailureResult | null
   ledger: DomainLedger
   lastCommittedTick: number
 }>
@@ -83,8 +109,13 @@ function emptyLedger(): DomainLedger {
     pearlVolumes: {},
     pearlSources: {},
     terminalPearls: {},
+    theoreticalMedicinalVolumes: {},
     naturalLossVolume: 0,
     inheritedLossVolume: 0,
+    burnedMedicinalVolume: 0,
+    missedMedicinalVolume: 0,
+    caughtVolumes: { medicinalLiquid: 0, slag: 0, impurity: 0 },
+    slagPoolVolumes: { medicinalLiquid: 0, slag: 0, impurity: 0 },
   }
 }
 
@@ -105,8 +136,95 @@ export function createDomainState(rules: PrototypeRules): DomainState {
     containerAxis: 0,
     flameThrustEnabled: false,
     finishRequested: false,
+    lossWarningLevel: 0,
+    failureResult: null,
     ledger: emptyLedger(),
     lastCommittedTick: -1,
+  }
+}
+
+export function deriveTheoreticalMedicinalVolume(state: DomainState): number {
+  return Object.values(state.ledger.theoreticalMedicinalVolumes).reduce(
+    (total, volume) => total + volume,
+    0,
+  )
+}
+
+export function deriveLossRate(state: DomainState): number {
+  const theoretical = deriveTheoreticalMedicinalVolume(state)
+  if (theoretical <= 0) return 0
+  const lost =
+    state.ledger.naturalLossVolume +
+    state.ledger.inheritedLossVolume +
+    state.ledger.burnedMedicinalVolume +
+    state.ledger.missedMedicinalVolume
+  return Math.max(0, Math.min(1, lost / theoretical))
+}
+
+function totalSlagPoolVolume(state: DomainState): number {
+  const volumes = state.ledger.slagPoolVolumes
+  return volumes.medicinalLiquid + volumes.slag + volumes.impurity
+}
+
+function convertSlagVolume(volume: number, unitVolume: number): number {
+  if (volume <= 0) return 0
+  return Math.max(1, Math.floor(volume / unitVolume))
+}
+
+export function deriveNormalSlagQuantity(
+  state: DomainState,
+  rules: PrototypeRules,
+): number {
+  return convertSlagVolume(
+    totalSlagPoolVolume(state),
+    rules.settlement.slagUnitVolume,
+  )
+}
+
+function deriveFailureRemainingEntityVolume(state: DomainState): number {
+  let total = state.materialInstances.reduce(
+    (sum, material) => sum + material.remainingVolume,
+    0,
+  )
+  for (const [pearlId, volume] of Object.entries(state.ledger.pearlVolumes)) {
+    const outcome = state.ledger.terminalPearls[pearlId]
+    if (outcome === 'missed' || outcome === 'burned') continue
+    total += volume
+  }
+  return total
+}
+
+export function evaluateExtractionState(
+  state: DomainState,
+  rules: PrototypeRules,
+): DomainState {
+  if (state.status !== 'extracting') return state
+  const lossRate = deriveLossRate(state)
+  const [warningOne, warningTwo] = rules.settlement.warningThresholds
+  const lossWarningLevel: LossWarningLevel =
+    lossRate >= warningTwo ? 2 : lossRate >= warningOne ? 1 : 0
+  if (lossRate <= rules.settlement.failureThreshold) {
+    if (state.lossWarningLevel === lossWarningLevel && state.failureResult === null) {
+      return state
+    }
+    return { ...state, lossWarningLevel, failureResult: null }
+  }
+
+  const remainingEntityVolume = deriveFailureRemainingEntityVolume(state)
+  return {
+    ...state,
+    status: 'failed',
+    isSpraying: false,
+    finishRequested: false,
+    lossWarningLevel,
+    failureResult: {
+      reason: 'excessiveMedicinalLoss',
+      remainingEntityVolume,
+      slagQuantity: convertSlagVolume(
+        remainingEntityVolume,
+        rules.settlement.slagUnitVolume,
+      ),
+    },
   }
 }
 
@@ -190,6 +308,9 @@ export function addMaterialServingFromBatch(
     inventoryBatchId: batch.batchId,
     initialVolume: batch.volumePerServing,
     remainingVolume: batch.volumePerServing,
+    theoreticalMedicinalVolume: batch.medicinalLiquidVolumePerServing,
+    inheritedLossAtAddition:
+      batch.medicinalLiquidVolumePerServing * deriveLossRate(state),
   }
   return allowed({
     ...state,

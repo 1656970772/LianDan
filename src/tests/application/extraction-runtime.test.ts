@@ -18,8 +18,14 @@ const rules: PrototypeRules = {
       materialDefinitionId: 'material.herb',
       servings: 1,
       volumePerServing: 1,
+      medicinalLiquidVolumePerServing: 1,
     },
   ],
+  settlement: {
+    warningThresholds: [0.5, 0.65],
+    failureThreshold: 0.7,
+    slagUnitVolume: 100,
+  },
 }
 
 class FakeSimulation implements ExtractionSimulationPort<Readonly<{ generation: number }>> {

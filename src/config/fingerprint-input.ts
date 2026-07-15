@@ -38,6 +38,11 @@ export function createSimulationFingerprintInput(
             exposureProbeDistance:
               config.parameters.dissolution.exposureProbeDistance,
           },
+          loss: {
+            naturalRatePerMinute: config.parameters.loss.naturalRatePerMinute,
+            warningThresholds: config.parameters.loss.warningThresholds,
+            failureThreshold: config.parameters.loss.failureThreshold,
+          },
         },
       },
       ...config.materials.map((material) => ({

@@ -28,6 +28,11 @@ function normalizedConfig(flowField: object = FLOW_RULES): NormalizedConfig {
       simulation: { fixedStepHz: 30, maxCatchUpSteps: 5 },
       flowField,
       dissolution: { volumePerTick: 0.18, exposureProbeDistance: 18 },
+      loss: {
+        naturalRatePerMinute: 0.01,
+        warningThresholds: [0.5, 0.65],
+        failureThreshold: 0.7,
+      },
     },
     materials: [
       {
@@ -80,6 +85,11 @@ describe('createSimulationFingerprintInput', () => {
       dissolution: {
         volumePerTick: 0.18,
         exposureProbeDistance: 18,
+      },
+      loss: {
+        naturalRatePerMinute: 0.01,
+        warningThresholds: [0.5, 0.65],
+        failureThreshold: 0.7,
       },
     })
   })

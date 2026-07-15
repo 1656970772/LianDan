@@ -24,6 +24,28 @@ function validAppearancePng(): Uint8Array {
   return PNG.sync.write(png, { colorType: 6, inputColorType: 6 })
 }
 
+function validPearlTypes() {
+  const shared = {
+    color: '#78E6D0',
+    outlineColor: '#D9FFF6',
+    spawnVelocity: { minX: -45, maxX: 45, minY: 60, maxY: 120 },
+    gravity: 350,
+    drift: 12,
+    maxSpeed: 500,
+    materialRestitution: 0.25,
+    wallRestitution: 0.5,
+    fireProtectionSeconds: 0.5,
+    resetProtectionOnExit: true,
+    burnDurationSeconds: 2.5,
+    thrustAcceleration: 500,
+  }
+  return [
+    { ...shared, id: 'medicinal-liquid', pearlType: 'medicinalLiquid', standardRadius: 24 },
+    { ...shared, id: 'slag', pearlType: 'slag', standardRadius: 22 },
+    { ...shared, id: 'impurity', pearlType: 'impurity', standardRadius: 20 },
+  ]
+}
+
 function documents(): Record<string, unknown> {
   return {
     '/config/config-set.json': {
@@ -97,18 +119,7 @@ function documents(): Record<string, unknown> {
     },
     '/config/m2/pearl-types.json': {
       schemaVersion: 1,
-      pearlTypes: [
-        {
-          id: 'medicinal-liquid',
-          pearlType: 'medicinalLiquid',
-          standardRadius: 24,
-          spawnVelocity: { minX: -45, maxX: 45, minY: 60, maxY: 120 },
-          gravity: 350,
-          drift: 12,
-          maxSpeed: 500,
-          materialRestitution: 0.25,
-        },
-      ],
+      pearlTypes: validPearlTypes(),
     },
     '/config/m2/collector.json': {
       schemaVersion: 1,
@@ -163,7 +174,7 @@ describe('loadBrowserM2GameplayConfig', () => {
         base: { materials: [{ id: 'moon-leaf' }] },
         gameplay: {
           prototype: { availableFireSourceIds: ['basic-fire'], fireSizeWheelStep: 4 },
-          pearlType: { pearlType: 'medicinalLiquid', materialRestitution: 0.25 },
+          pearlTypes: expect.any(Array),
         },
       },
       compositionMaps: [
@@ -175,6 +186,13 @@ describe('loadBrowserM2GameplayConfig', () => {
       ],
       simulationContentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
+    if (result.ok) {
+      expect(result.config.gameplay.pearlTypes.map(({ pearlType }) => pearlType)).toEqual([
+        'medicinalLiquid',
+        'slag',
+        'impurity',
+      ])
+    }
     if (result.ok) {
       expect(Object.isFrozen(result.config.gameplay.collector)).toBe(true)
       expect(Object.isFrozen(result.compositionMaps)).toBe(true)
@@ -250,10 +268,10 @@ describe('loadBrowserM2GameplayConfig', () => {
     }
   })
 
-  it('M2 在进入运行时前稳定拒绝非透明非药液青成分', async () => {
+  it('M3 在进入运行时前稳定拒绝未登记的成分颜色', async () => {
     const purple = validCompositionPng()
     const decoded = PNG.sync.read(Buffer.from(purple))
-    decoded.data.set([128, 0, 128, 255], 0)
+    decoded.data.set([255, 0, 0, 255], 0)
     const purpleBytes = PNG.sync.write(decoded, { colorType: 6, inputColorType: 6 })
     const baseOptions = options()
     const result = await loadBrowserM2GameplayConfig({

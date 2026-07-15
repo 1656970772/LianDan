@@ -80,7 +80,12 @@ function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
       max: 100,
     },
     isSpraying: false,
+    flameThrustEnabled: false,
     canFinish: false,
+    lossWarningLevel: 0,
+    caughtVolumes: { medicinalLiquid: 0, slag: 0, impurity: 0 },
+    normalSlagQuantity: 0,
+    failureResult: null,
     paused: false,
     restartConfirmation: 'closed',
     inventory: config.gameplay.prototype.inventoryBatches.map((batch) => {
@@ -131,6 +136,7 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
     onSelectFireSource: (fireSourceId) =>
       gameHandle?.selectFireSource(fireSourceId),
     onFireSizeChange: (fireSize) => gameHandle?.setFireSize(fireSize),
+    onFlameThrustChange: (enabled) => gameHandle?.setFlameThrust(enabled),
     onPause: () => gameHandle?.pause(),
     onResume: () => gameHandle?.resume(),
     onRequestRestart: () => gameHandle?.requestRestart(),
@@ -170,6 +176,7 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
     cancelMaterialSelection: () => gameHandle!.cancelMaterialSelection(),
     addSelectedMaterial: () => gameHandle!.addSelectedMaterial(),
     setFireSize: (size: number) => gameHandle!.setFireSize(size),
+    setFlameThrust: (enabled: boolean) => gameHandle!.setFlameThrust(enabled),
     requestFinish: () => gameHandle!.requestFinish(),
     pause: () => gameHandle!.pause(),
     resume: () => gameHandle!.resume(),

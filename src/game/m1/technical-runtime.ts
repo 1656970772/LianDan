@@ -310,6 +310,11 @@ export class M1TechnicalRuntime {
       initialFireSize: Math.min(100, this.#scenario.source.width),
       initialFireDirection: { ...this.#scenario.source.direction },
       inventoryBatches: [],
+      settlement: {
+        warningThresholds: [0.5, 0.65],
+        failureThreshold: 0.7,
+        slagUnitVolume: 100,
+      },
     }
     this.#application = new ExtractionApplication(rules)
     this.#circles = createM1CircleObstacles(this.#scenario.circles)

@@ -23,7 +23,12 @@ function createModel(
     fireSize: 40,
     fireSizeRange: { min: 10, max: 90 },
     isSpraying: false,
+    flameThrustEnabled: false,
     canFinish: false,
+    lossWarningLevel: 0,
+    caughtVolumes: { medicinalLiquid: 0, slag: 0, impurity: 0 },
+    normalSlagQuantity: 0,
+    failureResult: null,
     paused: false,
     restartConfirmation: 'closed',
     inventory: [
@@ -152,5 +157,32 @@ describe('M2 玩家工作台视图派生', () => {
 
     expect(view.addMaterialDisabled).toBe(true)
     expect(view.cancelSelectionDisabled).toBe(true)
+  })
+
+  test('M3 两级损耗提示不暴露百分比，失败时只开放结算面板', () => {
+    const warning = deriveM2WorkbenchView(
+      createModel({ status: 'extracting', lossWarningLevel: 1 }),
+    )
+    expect(warning.lossWarningMessage).toBe('药气正在加速流失。')
+    expect(warning.lossWarningMessage).not.toMatch(/\d|%/)
+
+    const failed = deriveM2WorkbenchView(
+      createModel({
+        status: 'failed',
+        lossWarningLevel: 2,
+        failureResult: {
+          reason: 'excessiveMedicinalLoss',
+          remainingEntityVolume: 4,
+          slagQuantity: 1,
+        },
+      }),
+    )
+    expect(failed).toMatchObject({
+      controlsDisabled: true,
+      failureDialogOpen: true,
+      completionDialogOpen: false,
+      lossWarningMessage: '药性濒临溃散，尽快收束火势。',
+      liveMessage: '本炉萃取失败。',
+    })
   })
 })

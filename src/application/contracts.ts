@@ -2,6 +2,8 @@ import type {
   DomainEvent,
   DomainState,
   DomainStatus,
+  ExtractionFailureResult,
+  LossWarningLevel,
   PrototypeRules,
   RuleCommand,
 } from '../domain/index.ts'
@@ -212,6 +214,8 @@ export type ApplicationReadModel = Readonly<{
   isSpraying: boolean
   effectiveFireSize: number
   canFinish: boolean
+  lossWarningLevel: LossWarningLevel
+  failureResult: ExtractionFailureResult | null
   paused: boolean
   pauseReasons: readonly PauseReason[]
   restartConfirmation: RestartConfirmation

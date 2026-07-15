@@ -19,12 +19,24 @@ const GRID_SIZE = 64
 const CELL_COUNT = GRID_SIZE * GRID_SIZE
 const MATERIAL_ID = 'material.generic'
 const MATERIAL_INSTANCE_ID = 'material-instance-1'
+const M3_PEARL_RULES = {
+  wallRestitution: 0.2,
+  fireProtectionSeconds: 10,
+  resetProtectionOnExit: true,
+  burnDurationSeconds: 60,
+  thrustAcceleration: 0,
+} as const
 
 const RULES: PrototypeRules = {
   availableFireSourceIds: ['fire.basic'],
   initialFireSize: 100,
   initialFireDirection: { x: 0, y: -1 },
   inventoryBatches: [],
+  settlement: {
+    warningThresholds: [0.5, 0.65],
+    failureThreshold: 0.7,
+    slagUnitVolume: 100,
+  },
 }
 
 function composition(
@@ -62,6 +74,8 @@ function config(
     fixedDeltaSeconds: 1,
     dissolutionVolumePerTick: 1,
     exposureProbeDistance: 2,
+    naturalLossRatePerMinute: 0,
+    safeZoneY: 112,
     fireFlow: {
       geometry: {
         columns: 32,
@@ -107,6 +121,7 @@ function config(
         driftX: 0,
         maxSpeed: 40,
         materialRestitution: 0.2,
+        ...M3_PEARL_RULES,
       },
       slag: {
         radiusAtStandardVolume: 2,
@@ -115,6 +130,7 @@ function config(
         driftX: 0,
         maxSpeed: 40,
         materialRestitution: 0.2,
+        ...M3_PEARL_RULES,
       },
       impurity: {
         radiusAtStandardVolume: 2,
@@ -123,6 +139,7 @@ function config(
         driftX: 0,
         maxSpeed: 40,
         materialRestitution: 0.2,
+        ...M3_PEARL_RULES,
       },
     },
     collector: {
@@ -294,6 +311,7 @@ describe('M2 纯萃取模拟事务', () => {
       driftX: 0,
       maxSpeed: 500,
       materialRestitution: 0.25,
+      ...M3_PEARL_RULES,
     }
     const simulation = new ExtractionSimulation(
       config(map, 2, {
@@ -537,6 +555,7 @@ describe('M2 纯萃取模拟事务', () => {
             driftX: 0,
             maxSpeed: 40,
             materialRestitution: 0.2,
+            ...M3_PEARL_RULES,
           },
           slag: {
             radiusAtStandardVolume: 2,
@@ -545,6 +564,7 @@ describe('M2 纯萃取模拟事务', () => {
             driftX: 0,
             maxSpeed: 40,
             materialRestitution: 0.2,
+            ...M3_PEARL_RULES,
           },
           impurity: {
             radiusAtStandardVolume: 2,
@@ -553,6 +573,7 @@ describe('M2 纯萃取模拟事务', () => {
             driftX: 0,
             maxSpeed: 40,
             materialRestitution: 0.2,
+            ...M3_PEARL_RULES,
           },
         },
       }),
@@ -595,6 +616,7 @@ describe('M2 纯萃取模拟事务', () => {
             driftX: 0,
             maxSpeed: 40,
             materialRestitution: 0.2,
+            ...M3_PEARL_RULES,
           },
           slag: {
             radiusAtStandardVolume: 2,
@@ -603,6 +625,7 @@ describe('M2 纯萃取模拟事务', () => {
             driftX: 0,
             maxSpeed: 40,
             materialRestitution: 0.2,
+            ...M3_PEARL_RULES,
           },
           impurity: {
             radiusAtStandardVolume: 2,
@@ -611,6 +634,7 @@ describe('M2 纯萃取模拟事务', () => {
             driftX: 0,
             maxSpeed: 40,
             materialRestitution: 0.2,
+            ...M3_PEARL_RULES,
           },
         },
       }),
@@ -664,6 +688,7 @@ describe('M2 纯萃取模拟事务', () => {
         driftX: 0,
         maxSpeed: 40,
         materialRestitution: 0.2,
+        ...M3_PEARL_RULES,
       }
       const simulation = new ExtractionSimulation(
         config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
@@ -705,6 +730,7 @@ describe('M2 纯萃取模拟事务', () => {
       driftX: 0,
       maxSpeed: 10,
       materialRestitution: 0.2,
+      ...M3_PEARL_RULES,
     }
     const simulation = new ExtractionSimulation(
       config(map, 2, {
@@ -746,6 +772,7 @@ describe('M2 纯萃取模拟事务', () => {
       driftX: 0,
       maxSpeed: 100,
       materialRestitution: 0.2,
+      ...M3_PEARL_RULES,
     }
     const simulation = new ExtractionSimulation(
       config(map, 1, {
@@ -838,6 +865,313 @@ describe('M2 纯萃取模拟事务', () => {
     expect(simulation.read().fireFlow.intensity[0]).toBe(originalIntensity)
     ;({ state } = runTick(simulation, state, 1))
     expect(simulation.read().fireFlow.generation).toBe(2)
+  })
+
+  it('按成分码稳定生成药液、药渣与杂质三类丹珠', () => {
+    const simulation = new ExtractionSimulation(
+      config(
+        composition([
+          { column: 31, row: 32, type: 1 },
+          { column: 32, row: 32, type: 2 },
+          { column: 33, row: 32, type: 3 },
+        ]),
+        3,
+        { dissolutionVolumePerTick: 3 },
+      ),
+    )
+
+    const result = runTick(simulation, domainState(3), 0)
+
+    expect(result.delta.births.map(({ pearlType }) => pearlType)).toEqual([
+      'impurity',
+      'medicinalLiquid',
+      'slag',
+    ])
+    expect(volumeByType(result.delta)).toEqual({
+      medicinalLiquid: 1,
+      slag: 1,
+      impurity: 1,
+    })
+  })
+
+  it('丹珠首触火焰先激活护盾，保护耗尽后才按体积持续灼烧', () => {
+    const physics = {
+      radiusAtStandardVolume: 2,
+      spawnVelocity: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+      gravity: 0,
+      driftX: 0,
+      maxSpeed: 40,
+      materialRestitution: 0.2,
+      wallRestitution: 0.2,
+      fireProtectionSeconds: 1,
+      resetProtectionOnExit: true,
+      burnDurationSeconds: 2,
+      thrustAcceleration: 0,
+    }
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+        pearlPhysics: {
+          medicinalLiquid: physics,
+          slag: physics,
+          impurity: physics,
+        },
+        collector: {
+          initialCenter: { x: 16, y: 112 },
+          width: 4,
+          height: 4,
+          trackMinX: 16,
+          trackMaxX: 112,
+          acceleration: 80,
+          deceleration: 100,
+          maxSpeed: 32,
+        },
+      }),
+    )
+    const born = runTick(simulation, domainState(1), 0)
+    const pearlId = born.delta.births[0]!.pearlId
+
+    const shielded = runTick(simulation, born.state, 1)
+    expect(shielded.delta.shieldActivations).toEqual([{ pearlId }])
+    expect(shielded.delta.pearlVolumeChanges).toEqual([])
+    expect(simulation.read().pearls[0]).toMatchObject({
+      currentVolume: 1,
+      shield: { active: true, exposureTicks: 1 },
+    })
+
+    const damaged = runTick(simulation, shielded.state, 2)
+    expect(damaged.delta.pearlVolumeChanges).toHaveLength(1)
+    expect(damaged.delta.pearlVolumeChanges[0]).toMatchObject({
+      pearlId,
+      previousVolume: 1,
+    })
+    expect(damaged.delta.pearlVolumeChanges[0]!.currentVolume).toBeLessThan(1)
+    expect(damaged.state.ledger.burnedMedicinalVolume).toBeGreaterThan(0)
+  })
+
+  it('火焰推力开关只在开启时沿权威流场改变丹珠速度', () => {
+    const physics = {
+      radiusAtStandardVolume: 2,
+      spawnVelocity: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+      gravity: 0,
+      driftX: 0,
+      maxSpeed: 100,
+      materialRestitution: 0.2,
+      wallRestitution: 0.2,
+      fireProtectionSeconds: 10,
+      resetProtectionOnExit: true,
+      burnDurationSeconds: 60,
+      thrustAcceleration: 20,
+    }
+    const create = () =>
+      new ExtractionSimulation(
+        config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+          pearlPhysics: {
+            medicinalLiquid: physics,
+            slag: physics,
+            impurity: physics,
+          },
+          collector: {
+            initialCenter: { x: 16, y: 112 },
+            width: 4,
+            height: 4,
+            trackMinX: 16,
+            trackMaxX: 112,
+            acceleration: 80,
+            deceleration: 100,
+            maxSpeed: 32,
+          },
+        }),
+      )
+    const offSimulation = create()
+    const onSimulation = create()
+    const offBorn = runTick(offSimulation, domainState(1), 0)
+    const onBorn = runTick(onSimulation, domainState(1), 0)
+
+    runTick(offSimulation, offBorn.state, 1)
+    runTick(
+      onSimulation,
+      { ...onBorn.state, flameThrustEnabled: true },
+      1,
+    )
+
+    expect(offSimulation.read().pearls[0]!.velocity).toEqual({ x: 0, y: 0 })
+    expect(onSimulation.read().pearls[0]!.velocity.y).toBeLessThan(0)
+  })
+
+  it('离开火流后重置保护计时，再次触火会重新激活护盾', () => {
+    const physics = {
+      radiusAtStandardVolume: 2,
+      spawnVelocity: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+      gravity: 0,
+      driftX: 0,
+      maxSpeed: 40,
+      materialRestitution: 0.2,
+      wallRestitution: 0.2,
+      fireProtectionSeconds: 1,
+      resetProtectionOnExit: true,
+      burnDurationSeconds: 2,
+      thrustAcceleration: 0,
+    }
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+        pearlPhysics: {
+          medicinalLiquid: physics,
+          slag: physics,
+          impurity: physics,
+        },
+        collector: {
+          initialCenter: { x: 16, y: 112 },
+          width: 4,
+          height: 4,
+          trackMinX: 16,
+          trackMaxX: 112,
+          acceleration: 80,
+          deceleration: 100,
+          maxSpeed: 32,
+        },
+      }),
+    )
+    const born = runTick(simulation, domainState(1), 0)
+    const firstContact = runTick(simulation, born.state, 1)
+    const leftFire = runTick(
+      simulation,
+      { ...firstContact.state, isSpraying: false },
+      2,
+    )
+    expect(simulation.read().pearls[0]!.shield).toEqual({
+      active: false,
+      exposureTicks: 0,
+    })
+
+    const secondContact = runTick(
+      simulation,
+      { ...leftFire.state, isSpraying: true },
+      3,
+    )
+    expect(secondContact.delta.shieldActivations).toHaveLength(1)
+    expect(secondContact.delta.pearlVolumeChanges).toEqual([])
+  })
+
+  it('丹珠越过安全区边界后永久退出挡火、伤害与推力资格', () => {
+    const physics = {
+      radiusAtStandardVolume: 2,
+      spawnVelocity: { minX: 0, maxX: 0, minY: 20, maxY: 20 },
+      gravity: 0,
+      driftX: 0,
+      maxSpeed: 40,
+      materialRestitution: 0.2,
+      wallRestitution: 0.2,
+      fireProtectionSeconds: 0,
+      resetProtectionOnExit: true,
+      burnDurationSeconds: 1,
+      thrustAcceleration: 20,
+    }
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+        safeZoneY: 70,
+        pearlPhysics: {
+          medicinalLiquid: physics,
+          slag: physics,
+          impurity: physics,
+        },
+        collector: {
+          initialCenter: { x: 16, y: 112 },
+          width: 4,
+          height: 4,
+          trackMinX: 16,
+          trackMaxX: 112,
+          acceleration: 80,
+          deceleration: 100,
+          maxSpeed: 32,
+        },
+      }),
+    )
+    const born = runTick(simulation, domainState(1), 0)
+    const entered = runTick(
+      simulation,
+      { ...born.state, flameThrustEnabled: true },
+      1,
+    )
+
+    expect(entered.delta.shieldActivations).toEqual([])
+    expect(entered.delta.pearlVolumeChanges).toEqual([])
+    expect(simulation.read().pearls[0]).toMatchObject({
+      currentVolume: 1,
+      velocity: { x: 0, y: 20 },
+      safeZone: { entered: true, enteredTick: 1 },
+    })
+  })
+
+  it('自然损耗按稳定实体顺序对合格药液体积分摊并守恒', () => {
+    const simulation = new ExtractionSimulation(
+      config(
+        composition([
+          { column: 31, row: 32, type: 1 },
+          { column: 32, row: 32, type: 1 },
+        ]),
+        2,
+        {
+          naturalLossRatePerMinute: 30,
+          dissolutionVolumePerTick: 1,
+        },
+      ),
+    )
+
+    const result = runTick(
+      simulation,
+      domainState(2, { isSpraying: false }),
+      0,
+    )
+
+    expect(result.delta.naturalLosses.map(({ stableEntityId }) => stableEntityId)).toEqual([
+      'cell:material-instance-1:2079',
+      'cell:material-instance-1:2080',
+    ])
+    expect(sum(result.delta.naturalLosses.map(({ volume }) => volume))).toBe(1)
+    expect(result.delta.naturalLosses.map(({ volume }) => volume)).toEqual([0.5, 0.5])
+    expect(result.state.materialInstances[0]!.remainingVolume).toBe(1)
+    expect(result.state.ledger.naturalLossVolume).toBe(1)
+  })
+
+  it('后加材料只对药液成分应用已记录继承损耗', () => {
+    const simulation = new ExtractionSimulation(
+      config(
+        composition([
+          { column: 31, row: 32, type: 1 },
+          { column: 32, row: 32, type: 1 },
+          { column: 33, row: 32, type: 2 },
+        ]),
+        3,
+        { dissolutionVolumePerTick: 1 },
+      ),
+    )
+    const state = domainState(3, {
+      isSpraying: false,
+      materialInstances: [
+        {
+          ...materialInstance(3),
+          theoreticalMedicinalVolume: 2,
+          inheritedLossAtAddition: 1,
+        },
+      ],
+    })
+
+    const result = runTick(simulation, state, 0)
+
+    expect(result.delta.inheritedLosses).toEqual([
+      {
+        materialInstanceId: MATERIAL_INSTANCE_ID,
+        theoreticalMedicinalVolume: 2,
+        volume: 1,
+      },
+    ])
+    expect(result.state.materialInstances[0]!.remainingVolume).toBe(2)
+    expect(result.state.ledger.theoreticalMedicinalVolumes).toEqual({
+      [MATERIAL_INSTANCE_ID]: 2,
+    })
+    expect(result.state.ledger.inheritedLossVolume).toBe(1)
+    expect(simulation.read().materials[0]!.remainingVolume).toBe(2)
+    expect(sum(simulation.read().materials[0]!.remainingCellVolumes)).toBe(2)
   })
 
   it('reset 清空所有运行态并从同一 seed 真实重放出相同 delta 与视图', () => {

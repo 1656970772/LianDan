@@ -100,7 +100,7 @@ describe('loadAndValidatePublicM2GameplayConfig', () => {
         base: { materials: [{ id: 'prototype-herb' }] },
         gameplay: {
           prototype: { fireSizeWheelStep: 4 },
-          pearlType: { pearlType: 'medicinalLiquid', materialRestitution: 0.25 },
+          pearlTypes: expect.any(Array),
         },
       },
       compositionMaps: [

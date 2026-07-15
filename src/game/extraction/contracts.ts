@@ -19,6 +19,7 @@ export interface M2BrowserApi {
   cancelMaterialSelection(): void
   addSelectedMaterial(): void
   setFireSize(size: number): void
+  setFlameThrust(enabled: boolean): void
   requestFinish(): void
   pause(): void
   resume(): void

@@ -36,7 +36,20 @@ export interface M2WorkbenchModel {
   readonly fireSize: number
   readonly fireSizeRange: M2FireSizeRange
   readonly isSpraying: boolean
+  readonly flameThrustEnabled: boolean
   readonly canFinish: boolean
+  readonly lossWarningLevel: 0 | 1 | 2
+  readonly caughtVolumes: Readonly<{
+    medicinalLiquid: number
+    slag: number
+    impurity: number
+  }>
+  readonly normalSlagQuantity: number
+  readonly failureResult: Readonly<{
+    reason: 'excessiveMedicinalLoss'
+    remainingEntityVolume: number
+    slagQuantity: number
+  }> | null
   readonly paused: boolean
   readonly restartConfirmation: M2RestartConfirmation
   readonly inventory: readonly M2InventoryBatchView[]
@@ -67,6 +80,7 @@ export interface CreateM2WorkbenchOptions {
   readonly onAddSelectedMaterial: () => void
   readonly onSelectFireSource: (fireSourceId: string) => void
   readonly onFireSizeChange: (fireSize: number) => void
+  readonly onFlameThrustChange: (enabled: boolean) => void
   readonly onPause: () => void
   readonly onResume: () => void
   readonly onRequestRestart: () => void
@@ -97,10 +111,12 @@ export interface M2WorkbenchView {
   readonly finishDisabled: boolean
   readonly restartDialogOpen: boolean
   readonly completionDialogOpen: boolean
+  readonly failureDialogOpen: boolean
+  readonly lossWarningMessage: string
   readonly liveMessage: string
 }
 
-type M2DialogKind = 'restart' | 'completion'
+type M2DialogKind = 'restart' | 'failure' | 'completion'
 
 const STATUS_LABELS: Readonly<Record<M2WorkbenchStatus, string>> = Object.freeze({
   ready: '待投药',
@@ -175,6 +191,13 @@ export function deriveM2WorkbenchView(
     finishDisabled: controlsDisabled || !model.canFinish,
     restartDialogOpen,
     completionDialogOpen: model.status === 'completed',
+    failureDialogOpen: model.status === 'failed',
+    lossWarningMessage:
+      model.lossWarningLevel === 2
+        ? '药性濒临溃散，尽快收束火势。'
+        : model.lossWarningLevel === 1
+          ? '药气正在加速流失。'
+          : '',
     liveMessage,
   }
 }
@@ -297,12 +320,27 @@ export function createM2Workbench(
   fireSizeInput.dataset.uiInteractive = ''
   fireSizeRow.append(fireSizeLabel, fireSizeOutput)
 
+  const thrustRow = createElement(document, 'label', 'm3-thrust-row')
+  thrustRow.htmlFor = 'm3-flame-thrust'
+  const thrustCopy = createElement(document, 'span', 'm3-thrust-row__copy')
+  const thrustName = document.createElement('strong')
+  thrustName.textContent = '火势助推'
+  const thrustHelp = document.createElement('span')
+  thrustHelp.textContent = '让火流推动丹珠，接取更灵活。'
+  thrustCopy.append(thrustName, thrustHelp)
+  const thrustInput = document.createElement('input')
+  thrustInput.id = 'm3-flame-thrust'
+  thrustInput.type = 'checkbox'
+  thrustInput.dataset.flameThrust = ''
+  thrustInput.dataset.uiInteractive = ''
+  thrustRow.append(thrustCopy, thrustInput)
+
   const metrics = createElement(document, 'dl', 'm2-metrics')
   const metricNodes = new Map<string, HTMLElement>()
   for (const [key, label] of [
     ['remaining', '剩余药材'],
     ['active', '活动珠'],
-    ['caught', '已接取'],
+    ['caught', '接液皿'],
   ] as const) {
     const metric = createElement(document, 'div', 'm2-metric')
     const term = document.createElement('dt')
@@ -313,7 +351,13 @@ export function createM2Workbench(
     metrics.append(metric)
     metricNodes.set(key, value)
   }
-  fireSizeSection.append(fireSizeHeading, fireSizeRow, fireSizeInput, metrics)
+  fireSizeSection.append(
+    fireSizeHeading,
+    fireSizeRow,
+    fireSizeInput,
+    thrustRow,
+    metrics,
+  )
 
   const inventorySection = createElement(
     document,
@@ -359,7 +403,12 @@ export function createM2Workbench(
   statusLive.setAttribute('role', 'status')
   statusLive.setAttribute('aria-live', 'polite')
   statusLive.setAttribute('aria-atomic', 'true')
-  actionSection.append(finishButton, statusLive)
+  const lossWarning = createElement(document, 'p', 'm3-loss-warning')
+  lossWarning.dataset.lossWarning = ''
+  lossWarning.hidden = true
+  lossWarning.setAttribute('role', 'status')
+  lossWarning.setAttribute('aria-live', 'assertive')
+  actionSection.append(lossWarning, finishButton, statusLive)
 
   panel.append(fireSection, fireSizeSection, inventorySection, actionSection)
   layout.append(stage, panel)
@@ -416,7 +465,36 @@ export function createM2Workbench(
   completionCard.append(completionTitle, completionCopy, againButton)
   completionDialog.append(completionCard)
 
-  shell.append(header, layout, restartDialog, completionDialog)
+  const failureDialog = createElement(document, 'div', 'm2-dialog m3-failure-dialog')
+  failureDialog.dataset.failureDialog = ''
+  failureDialog.dataset.uiInteractive = ''
+  failureDialog.hidden = true
+  failureDialog.setAttribute('role', 'dialog')
+  failureDialog.setAttribute('aria-modal', 'true')
+  failureDialog.setAttribute('aria-labelledby', 'm3-failure-title')
+  const failureCard = createElement(document, 'section', 'm2-dialog__card m3-failure-card')
+  const failureEyebrow = createElement(document, 'span', 'm3-failure-card__eyebrow')
+  failureEyebrow.textContent = '药性溃散'
+  const failureTitle = document.createElement('h2')
+  failureTitle.id = 'm3-failure-title'
+  failureTitle.textContent = '本炉化为药渣'
+  const failureCopy = document.createElement('p')
+  failureCopy.dataset.failureSummary = ''
+  const failureAgainButton = createButton(
+    document,
+    '再来一炉',
+    'm2-control m2-control--primary',
+  )
+  failureAgainButton.dataset.action = 'again'
+  failureCard.append(
+    failureEyebrow,
+    failureTitle,
+    failureCopy,
+    failureAgainButton,
+  )
+  failureDialog.append(failureCard)
+
+  shell.append(header, layout, restartDialog, failureDialog, completionDialog)
   options.root.replaceChildren(shell)
   if (stage.closest('[data-ui-interactive]') !== null) {
     throw new Error('M2 游戏区不能位于 UI 交互区域内。')
@@ -425,6 +503,9 @@ export function createM2Workbench(
   let currentModel = options.initialModel
   let activeDialog: M2DialogKind | null = null
   let returnFocus: HTMLElement | null = null
+  let fireSourcesRenderKey: string | null = null
+  let inventoryRenderKey: string | null = null
+  let pendingFlameThrust: boolean | null = null
   let destroyed = false
 
   function getEventElement(event: Event): Element | null {
@@ -435,11 +516,13 @@ export function createM2Workbench(
   }
 
   function dialogElement(kind: M2DialogKind): HTMLElement {
-    return kind === 'restart' ? restartDialog : completionDialog
+    if (kind === 'restart') return restartDialog
+    return kind === 'failure' ? failureDialog : completionDialog
   }
 
   function dialogPreferredFocus(kind: M2DialogKind): HTMLButtonElement {
-    return kind === 'restart' ? cancelRestartButton : againButton
+    if (kind === 'restart') return cancelRestartButton
+    return kind === 'failure' ? failureAgainButton : againButton
   }
 
   function restoreFocus(): void {
@@ -549,9 +632,13 @@ export function createM2Workbench(
   }
 
   function handleInput(event: Event): void {
-    if (event.target !== fireSizeInput || fireSizeInput.disabled) return
-    const value = Number(fireSizeInput.value)
-    if (Number.isFinite(value)) options.onFireSizeChange(value)
+    if (event.target === fireSizeInput && !fireSizeInput.disabled) {
+      const value = Number(fireSizeInput.value)
+      if (Number.isFinite(value)) options.onFireSizeChange(value)
+    } else if (event.target === thrustInput && !thrustInput.disabled) {
+      pendingFlameThrust = thrustInput.checked
+      options.onFlameThrustChange(thrustInput.checked)
+    }
   }
 
   function handleContextMenu(event: MouseEvent): void {
@@ -743,25 +830,57 @@ export function createM2Workbench(
     fireSizeInput.setAttribute('aria-valuetext', `${formatNumber(model.fireSize)} 档`)
     fireSizeOutput.value = formatNumber(model.fireSize)
     fireSizeOutput.textContent = formatNumber(model.fireSize)
+    if (pendingFlameThrust === model.flameThrustEnabled) {
+      pendingFlameThrust = null
+    }
+    thrustInput.checked = pendingFlameThrust ?? model.flameThrustEnabled
+    thrustInput.disabled = view.controlsDisabled
     metricNodes.get('remaining')!.textContent = formatNumber(
       model.materialRemaining,
     )
     metricNodes.get('active')!.textContent = formatNumber(
       model.activePearlCount,
     )
-    metricNodes.get('caught')!.textContent = formatNumber(
-      model.caughtPearlCount,
-    )
-    renderFireSources(model, view)
-    renderInventory(model, view)
-    if (focusedFireSourceId !== undefined) {
+    const contaminantVolume = model.caughtVolumes.slag + model.caughtVolumes.impurity
+    metricNodes.get('caught')!.textContent =
+      contaminantVolume <= 0
+        ? model.caughtVolumes.medicinalLiquid > 0
+          ? '澄澈'
+          : '空'
+        : contaminantVolume < model.caughtVolumes.medicinalLiquid
+          ? '微浊'
+          : '浑浊'
+    const nextFireSourcesRenderKey = JSON.stringify([
+      model.fireSources,
+      model.equippedFireSourceId,
+      view.controlsDisabled,
+      view.fireSourceLocked,
+    ])
+    const nextInventoryRenderKey = JSON.stringify([
+      model.inventory,
+      model.selectedMaterialBatchId,
+      view.controlsDisabled,
+      view.addMaterialDisabled,
+      view.cancelSelectionDisabled,
+    ])
+    const fireSourcesChanged = fireSourcesRenderKey !== nextFireSourcesRenderKey
+    const inventoryChanged = inventoryRenderKey !== nextInventoryRenderKey
+    if (fireSourcesChanged) {
+      renderFireSources(model, view)
+      fireSourcesRenderKey = nextFireSourcesRenderKey
+    }
+    if (inventoryChanged) {
+      renderInventory(model, view)
+      inventoryRenderKey = nextInventoryRenderKey
+    }
+    if (fireSourcesChanged && focusedFireSourceId !== undefined) {
       const replacement = Array.from(
         fireSourceList.querySelectorAll<HTMLButtonElement>(
           'button[data-fire-source-id]',
         ),
       ).find((button) => button.dataset.fireSourceId === focusedFireSourceId)
       if (replacement !== undefined && !replacement.disabled) replacement.focus()
-    } else if (focusedInventoryBatchId !== undefined) {
+    } else if (inventoryChanged && focusedInventoryBatchId !== undefined) {
       const replacement = Array.from(
         inventoryList.querySelectorAll<HTMLButtonElement>(
           'button[data-inventory-batch-id]',
@@ -777,13 +896,27 @@ export function createM2Workbench(
     if (statusLive.textContent !== view.liveMessage) {
       statusLive.textContent = view.liveMessage
     }
-    completionCopy.textContent = `已接取 ${formatNumber(model.caughtPearlCount)} 颗精灵珠。`
+    lossWarning.hidden = view.lossWarningMessage.length === 0
+    lossWarning.dataset.level = String(model.lossWarningLevel)
+    lossWarning.textContent = view.lossWarningMessage
+    completionCopy.textContent =
+      `药液 ${formatNumber(model.caughtVolumes.medicinalLiquid)} 份量` +
+      (model.normalSlagQuantity > 0
+        ? `，另得药渣 × ${formatNumber(model.normalSlagQuantity)}。`
+        : '，未收得额外药渣。')
+    failureCopy.textContent = model.failureResult === null
+      ? '损耗超过药性承受极限。'
+      : `损耗超过药性承受极限，剩余炉料结为药渣 × ${formatNumber(
+          model.failureResult.slagQuantity,
+        )}。`
 
     const nextDialog = view.restartDialogOpen
       ? 'restart'
-      : view.completionDialogOpen
-        ? 'completion'
-        : null
+      : view.failureDialogOpen
+        ? 'failure'
+        : view.completionDialogOpen
+          ? 'completion'
+          : null
     setActiveDialog(nextDialog)
   }
 

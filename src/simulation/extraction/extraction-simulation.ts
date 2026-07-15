@@ -5,8 +5,12 @@ import type {
   PearlType,
 } from '../../domain/index.ts'
 import type {
+  InheritedLossDelta,
+  NaturalLossDelta,
   PearlBirthDelta,
+  PearlShieldActivationDelta,
   PearlTerminalDelta,
+  PearlVolumeChangeDelta,
   SimulationDelta,
 } from '../contracts.ts'
 import {
@@ -77,11 +81,15 @@ interface MutablePearl {
   readonly sourceMaterialDefinitionId: string
   readonly sourceMaterialInstanceId: string
   readonly pearlType: PearlType
-  readonly currentVolume: number
-  readonly radius: number
+  readonly initialVolume: number
+  currentVolume: number
+  radius: number
   position: ExtractionVector
   velocity: ExtractionVector
-  state: 'newborn' | 'active' | 'caught' | 'missed'
+  state: 'newborn' | 'active' | 'caught' | 'missed' | 'burned'
+  exposureTicks: number
+  shieldActive: boolean
+  safeZoneEnteredTick: number | null
 }
 
 interface MutableCollector {
@@ -118,7 +126,11 @@ interface TickTransaction {
   fireWidth: number
   dissolutionByKey: Map<string, MutableDissolutionEntry>
   births: PearlBirthDelta[]
+  volumeChanges: PearlVolumeChangeDelta[]
   terminals: PearlTerminalDelta[]
+  naturalLosses: NaturalLossDelta[]
+  inheritedLosses: InheritedLossDelta[]
+  shieldActivations: PearlShieldActivationDelta[]
   builtDelta: SimulationDelta | null
 }
 
@@ -171,6 +183,11 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
   if (config.exposureProbeDistance < 0) {
     throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:exposureProbeDistance')
   }
+  requireFinite('naturalLossRatePerMinute', config.naturalLossRatePerMinute)
+  if (config.naturalLossRatePerMinute < 0 || config.naturalLossRatePerMinute > 60) {
+    throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:naturalLossRatePerMinute')
+  }
+  requireFinite('safeZoneY', config.safeZoneY)
 
   requirePositive('materialPlacement.width', config.materialPlacement.width)
   requirePositive('materialPlacement.height', config.materialPlacement.height)
@@ -240,6 +257,22 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
         `SIM_EXTRACTION_CONFIG_INVALID:${pearlType}.materialRestitution`,
       )
     }
+    requireFinite(`${pearlType}.wallRestitution`, physics.wallRestitution)
+    if (physics.wallRestitution < 0 || physics.wallRestitution > 1) {
+      throw new RangeError(`SIM_EXTRACTION_CONFIG_INVALID:${pearlType}.wallRestitution`)
+    }
+    requireFinite(`${pearlType}.fireProtectionSeconds`, physics.fireProtectionSeconds)
+    if (physics.fireProtectionSeconds < 0) {
+      throw new RangeError(`SIM_EXTRACTION_CONFIG_INVALID:${pearlType}.fireProtectionSeconds`)
+    }
+    if (typeof physics.resetProtectionOnExit !== 'boolean') {
+      throw new RangeError(`SIM_EXTRACTION_CONFIG_INVALID:${pearlType}.resetProtectionOnExit`)
+    }
+    requirePositive(`${pearlType}.burnDurationSeconds`, physics.burnDurationSeconds)
+    requireFinite(`${pearlType}.thrustAcceleration`, physics.thrustAcceleration)
+    if (physics.thrustAcceleration < 0) {
+      throw new RangeError(`SIM_EXTRACTION_CONFIG_INVALID:${pearlType}.thrustAcceleration`)
+    }
   }
 
   validateVector('collector.initialCenter', config.collector.initialCenter)
@@ -262,6 +295,9 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
     config.worldBounds.bottom <= config.worldBounds.top
   ) {
     throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:worldBounds')
+  }
+  if (config.safeZoneY < config.worldBounds.top || config.safeZoneY > config.worldBounds.bottom) {
+    throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:safeZoneY')
   }
 
   const cloned: ExtractionSimulationConfig = {
@@ -474,11 +510,20 @@ function pearlReadView(pearl: MutablePearl): ExtractionPearlReadView {
     sourceMaterialDefinitionId: pearl.sourceMaterialDefinitionId,
     sourceMaterialInstanceId: pearl.sourceMaterialInstanceId,
     pearlType: pearl.pearlType,
+    initialVolume: pearl.initialVolume,
     currentVolume: pearl.currentVolume,
     radius: pearl.radius,
     position: Object.freeze({ ...pearl.position }),
     velocity: Object.freeze({ ...pearl.velocity }),
     state: pearl.state,
+    shield: Object.freeze({
+      active: pearl.shieldActive,
+      exposureTicks: pearl.exposureTicks,
+    }),
+    safeZone: Object.freeze({
+      entered: pearl.safeZoneEnteredTick !== null,
+      enteredTick: pearl.safeZoneEnteredTick,
+    }),
   })
 }
 
@@ -602,7 +647,11 @@ export class ExtractionSimulation {
       fireWidth: 0,
       dissolutionByKey: new Map(),
       births: [],
+      volumeChanges: [],
       terminals: [],
+      naturalLosses: [],
+      inheritedLosses: [],
+      shieldActivations: [],
       builtDelta: null,
     }
   }
@@ -631,6 +680,7 @@ export class ExtractionSimulation {
         this.#settlePearls(transaction)
         break
       case 7:
+        this.#applyNaturalLoss(transaction)
         break
     }
     transaction.nextPhase += 1
@@ -652,14 +702,41 @@ export class ExtractionSimulation {
     const terminalOutcomes = transaction.terminals
       .slice()
       .sort((left, right) => compareStableId(left.pearlId, right.pearlId))
+    const domainMaterials = new Map(
+      transaction.domainState.materialInstances.map((material) => [
+        material.materialInstanceId,
+        material,
+      ]),
+    )
+    const materialVolumeChanges = transaction.state.materials.map((material) => {
+      const domainMaterial = domainMaterials.get(material.materialInstanceId)
+      if (domainMaterial === undefined) {
+        throw new Error('SIM_EXTRACTION_DOMAIN_MATERIAL_MISMATCH')
+      }
+      return {
+        materialInstanceId: material.materialInstanceId,
+        previousVolume: domainMaterial.remainingVolume,
+        currentVolume: material.remainingVolume,
+      }
+    })
     transaction.builtDelta = {
       tick: transaction.tick,
       dissolutions,
       births,
-      pearlVolumeChanges: [],
+      pearlVolumeChanges: transaction.volumeChanges
+        .slice()
+        .sort((left, right) => compareStableId(left.pearlId, right.pearlId)),
       terminalOutcomes,
-      naturalLosses: [],
-      inheritedLosses: [],
+      naturalLosses: transaction.naturalLosses
+        .slice()
+        .sort((left, right) => compareStableId(left.stableEntityId, right.stableEntityId)),
+      inheritedLosses: transaction.inheritedLosses
+        .slice()
+        .sort((left, right) => compareStableId(left.materialInstanceId, right.materialInstanceId)),
+      materialVolumeChanges,
+      shieldActivations: transaction.shieldActivations
+        .slice()
+        .sort((left, right) => compareStableId(left.pearlId, right.pearlId)),
     }
     return transaction.builtDelta
   }
@@ -735,6 +812,26 @@ export class ExtractionSimulation {
         continue
       }
       const material = this.#createMaterial(instance, index)
+      const theoreticalMedicinalVolume =
+        instance.theoreticalMedicinalVolume ??
+        material.initialVolumeByType.medicinalLiquid
+      const inheritedLossVolume = instance.inheritedLossAtAddition ?? 0
+      if (
+        !approximatelyEqual(
+          theoreticalMedicinalVolume,
+          material.initialVolumeByType.medicinalLiquid,
+        ) ||
+        inheritedLossVolume < 0 ||
+        inheritedLossVolume > theoreticalMedicinalVolume + GEOMETRY_EPSILON
+      ) {
+        throw new Error('SIM_EXTRACTION_INHERITED_LOSS_MISMATCH')
+      }
+      this.#applyInheritedLossToMaterial(material, inheritedLossVolume)
+      transaction.inheritedLosses.push({
+        materialInstanceId: material.materialInstanceId,
+        theoreticalMedicinalVolume,
+        volume: inheritedLossVolume,
+      })
       transaction.state.materials.push(material)
       stateById.set(material.materialInstanceId, material)
     }
@@ -797,6 +894,37 @@ export class ExtractionSimulation {
     }
   }
 
+  #applyInheritedLossToMaterial(
+    material: MutableMaterial,
+    requestedLoss: number,
+  ): void {
+    if (requestedLoss <= 0) return
+    const medicinalCells: number[] = []
+    for (let cellIndex = 0; cellIndex < material.definition.composition.length; cellIndex += 1) {
+      if (material.definition.composition[cellIndex] === 1) medicinalCells.push(cellIndex)
+    }
+    let remainingLoss = requestedLoss
+    let remainingCapacity = material.initialVolumeByType.medicinalLiquid
+    for (let index = 0; index < medicinalCells.length; index += 1) {
+      const cellIndex = medicinalCells[index]!
+      const available = material.remainingCellVolumes[cellIndex]!
+      const loss =
+        index === medicinalCells.length - 1
+          ? remainingLoss
+          : Math.min(available, remainingLoss * (available / remainingCapacity))
+      material.remainingCellVolumes[cellIndex] = Math.max(0, available - loss)
+      remainingLoss -= loss
+      remainingCapacity -= available
+    }
+    if (!approximatelyEqual(remainingLoss, 0)) {
+      throw new Error('SIM_EXTRACTION_INHERITED_LOSS_ALLOCATION_FAILED')
+    }
+    material.remainingVolume = clampVolumeToZero(
+      sumCellVolumes(material.remainingCellVolumes),
+      material.initialVolume,
+    )
+  }
+
   #buildObstacles(transaction: TickTransaction): void {
     transaction.fullObstacles = rasterizeRemainingMaterials(
       transaction.state.materials,
@@ -810,7 +938,11 @@ export class ExtractionSimulation {
     const eligible = new Uint8Array(count)
     for (let index = 0; index < count; index += 1) {
       const pearl = pearlsById.get(transaction.tickStartActivePearlIds[index]!)
-      if (pearl === undefined || pearl.state !== 'active') continue
+      if (
+        pearl === undefined ||
+        pearl.state !== 'active' ||
+        pearl.safeZoneEnteredTick !== null
+      ) continue
       x[index] = pearl.position.x
       y[index] = pearl.position.y
       radius[index] = pearl.radius
@@ -1093,11 +1225,15 @@ export class ExtractionSimulation {
       sourceMaterialDefinitionId: material.materialDefinitionId,
       sourceMaterialInstanceId: material.materialInstanceId,
       pearlType,
+      initialVolume: volume,
       currentVolume: volume,
       radius,
       position: { ...position },
       velocity: spawnVelocity(this.#config.seed, pearlId, physics),
       state: 'newborn',
+      exposureTicks: 0,
+      shieldActive: false,
+      safeZoneEnteredTick: null,
     })
     transaction.births.push({
       pearlId,
@@ -1157,6 +1293,66 @@ export class ExtractionSimulation {
         x: pearl.position.x + velocityX * this.#config.fixedDeltaSeconds,
         y: pearl.position.y + velocityY * this.#config.fixedDeltaSeconds,
       }
+
+      if (
+        pearl.safeZoneEnteredTick === null &&
+        nextPosition.y >= this.#config.safeZoneY
+      ) {
+        pearl.safeZoneEnteredTick = transaction.tick
+        pearl.shieldActive = false
+      }
+
+      const flow = this.#sampleFlow(transaction.flowView, nextPosition)
+      if (pearl.safeZoneEnteredTick === null && flow.intensity > 0) {
+        if (pearl.exposureTicks === 0) {
+          transaction.shieldActivations.push({ pearlId: pearl.pearlId })
+        }
+        pearl.exposureTicks += 1
+        const protectionTicks = Math.ceil(
+          physics.fireProtectionSeconds / this.#config.fixedDeltaSeconds,
+        )
+        pearl.shieldActive = pearl.exposureTicks <= protectionTicks
+        if (!pearl.shieldActive) {
+          const previousVolume = pearl.currentVolume
+          const damage =
+            (pearl.initialVolume / physics.burnDurationSeconds) *
+            this.#config.fixedDeltaSeconds *
+            flow.intensity
+          pearl.currentVolume = clampVolumeToZero(
+            Math.max(0, pearl.currentVolume - damage),
+            pearl.initialVolume,
+          )
+          pearl.radius =
+            physics.radiusAtStandardVolume *
+            Math.sqrt(pearl.currentVolume / this.#config.standardPearlVolume)
+          if (!approximatelyEqual(previousVolume, pearl.currentVolume)) {
+            transaction.volumeChanges.push({
+              pearlId: pearl.pearlId,
+              previousVolume,
+              currentVolume: pearl.currentVolume,
+            })
+          }
+        }
+        if (domainState.flameThrustEnabled && physics.thrustAcceleration > 0) {
+          velocityX +=
+            flow.x * physics.thrustAcceleration * this.#config.fixedDeltaSeconds * flow.intensity
+          velocityY +=
+            flow.y * physics.thrustAcceleration * this.#config.fixedDeltaSeconds * flow.intensity
+        }
+      } else {
+        pearl.shieldActive = false
+        if (pearl.safeZoneEnteredTick === null && physics.resetProtectionOnExit) {
+          pearl.exposureTicks = 0
+        }
+      }
+
+      if (pearl.currentVolume === 0) {
+        pearl.state = 'burned'
+        pearl.velocity = { x: velocityX, y: velocityY }
+        transaction.terminals.push({ pearlId: pearl.pearlId, outcome: 'burned' })
+        continue
+      }
+
       const displacement = Math.hypot(
         nextPosition.x - pearl.position.x,
         nextPosition.y - pearl.position.y,
@@ -1193,9 +1389,146 @@ export class ExtractionSimulation {
           y: -velocityY * physics.materialRestitution,
         }
       } else {
-        pearl.position = nextPosition
+        const resolved = { ...nextPosition }
+        if (resolved.x - pearl.radius < this.#config.worldBounds.left) {
+          resolved.x = this.#config.worldBounds.left + pearl.radius
+          velocityX = Math.abs(velocityX) * physics.wallRestitution
+        } else if (resolved.x + pearl.radius > this.#config.worldBounds.right) {
+          resolved.x = this.#config.worldBounds.right - pearl.radius
+          velocityX = -Math.abs(velocityX) * physics.wallRestitution
+        }
+        if (resolved.y - pearl.radius < this.#config.worldBounds.top) {
+          resolved.y = this.#config.worldBounds.top + pearl.radius
+          velocityY = Math.abs(velocityY) * physics.wallRestitution
+        }
+        pearl.position = resolved
         pearl.velocity = { x: velocityX, y: velocityY }
       }
+    }
+  }
+
+  #sampleFlow(
+    view: FireFlowReadView | null,
+    position: ExtractionVector,
+  ): Readonly<{ x: number; y: number; intensity: number }> {
+    if (view === null) return { x: 0, y: 0, intensity: 0 }
+    const column = Math.floor((position.x - view.originX) / view.cellSize)
+    const row = Math.floor((position.y - view.originY) / view.cellSize)
+    if (column < 0 || row < 0 || column >= view.columns || row >= view.rows) {
+      return { x: 0, y: 0, intensity: 0 }
+    }
+    const index = row * view.columns + column
+    return {
+      x: view.flowX[index] ?? 0,
+      y: view.flowY[index] ?? 0,
+      intensity: (view.intensity[index] ?? 0) / 255,
+    }
+  }
+
+  #applyNaturalLoss(transaction: TickTransaction): void {
+    if (
+      transaction.domainState.status !== 'extracting' ||
+      this.#config.naturalLossRatePerMinute <= 0
+    ) return
+
+    type EligibleLoss = {
+      readonly stableEntityId: string
+      readonly volume: number
+      apply(volume: number): void
+    }
+    const eligible: EligibleLoss[] = []
+    for (const material of transaction.state.materials) {
+      for (
+        let cellIndex = 0;
+        cellIndex < material.remainingCellVolumes.length;
+        cellIndex += 1
+      ) {
+        if (material.definition.composition[cellIndex] !== 1) continue
+        const volume = material.remainingCellVolumes[cellIndex]!
+        if (volume <= 0) continue
+        const stableEntityId = `cell:${material.materialInstanceId}:${cellIndex
+          .toString()
+          .padStart(4, '0')}`
+        eligible.push({
+          stableEntityId,
+          volume,
+          apply: (loss) => {
+            material.remainingCellVolumes[cellIndex] = Math.max(0, volume - loss)
+            transaction.naturalLosses.push({
+              sourceKind: 'materialCell',
+              stableEntityId,
+              materialInstanceId: material.materialInstanceId,
+              pearlType: 'medicinalLiquid',
+              volume: loss,
+            })
+          },
+        })
+      }
+    }
+    for (const pearl of transaction.state.pearls) {
+      if (pearl.state !== 'active' || pearl.pearlType !== 'medicinalLiquid') continue
+      const stableEntityId = `pearl:${pearl.pearlId}`
+      const volume = pearl.currentVolume
+      if (volume <= 0) continue
+      eligible.push({
+        stableEntityId,
+        volume,
+        apply: (loss) => {
+          pearl.currentVolume = clampVolumeToZero(
+            Math.max(0, volume - loss),
+            pearl.initialVolume,
+          )
+          pearl.radius =
+            this.#config.pearlPhysics.medicinalLiquid.radiusAtStandardVolume *
+            Math.sqrt(pearl.currentVolume / this.#config.standardPearlVolume)
+          transaction.naturalLosses.push({
+            sourceKind: 'pearl',
+            stableEntityId,
+            pearlId: pearl.pearlId,
+            volume: loss,
+          })
+          if (pearl.currentVolume === 0) {
+            pearl.state = 'burned'
+            transaction.terminals.push({
+              pearlId: pearl.pearlId,
+              outcome: 'burned',
+            })
+          }
+        },
+      })
+    }
+
+    eligible.sort((left, right) =>
+      compareStableId(left.stableEntityId, right.stableEntityId),
+    )
+    const eligibleVolume = eligible.reduce((total, item) => total + item.volume, 0)
+    let remainingLoss = clamp(
+      eligibleVolume *
+        this.#config.naturalLossRatePerMinute *
+        this.#config.fixedDeltaSeconds /
+        60,
+      0,
+      eligibleVolume,
+    )
+    let remainingCapacity = eligibleVolume
+    for (let index = 0; index < eligible.length; index += 1) {
+      const item = eligible[index]!
+      const loss =
+        index === eligible.length - 1
+          ? remainingLoss
+          : Math.min(item.volume, remainingLoss * (item.volume / remainingCapacity))
+      if (loss > 0) item.apply(loss)
+      remainingLoss -= loss
+      remainingCapacity -= item.volume
+    }
+    if (!approximatelyEqual(remainingLoss, 0)) {
+      throw new Error('SIM_EXTRACTION_NATURAL_LOSS_ALLOCATION_FAILED')
+    }
+    for (const material of transaction.state.materials) {
+      material.remainingVolume = clampVolumeToZero(
+        sumCellVolumes(material.remainingCellVolumes),
+        material.initialVolume,
+      )
     }
   }
 

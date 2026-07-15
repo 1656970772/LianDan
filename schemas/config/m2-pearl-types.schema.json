@@ -1,31 +1,43 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://liandan.local/schemas/config/m2-pearl-types.schema.json",
-  "title": "M2 药液珠配置",
+  "title": "M3 三类精灵珠配置",
   "type": "object",
   "required": ["schemaVersion", "pearlTypes"],
   "properties": {
     "schemaVersion": { "type": "integer", "const": 1 },
     "pearlTypes": {
       "type": "array",
-      "minItems": 1,
-      "maxItems": 1,
+      "minItems": 3,
+      "maxItems": 3,
       "items": {
         "type": "object",
         "required": [
           "id",
           "pearlType",
           "standardRadius",
+          "color",
+          "outlineColor",
           "spawnVelocity",
           "gravity",
           "drift",
           "maxSpeed",
-          "materialRestitution"
+          "materialRestitution",
+          "wallRestitution",
+          "fireProtectionSeconds",
+          "resetProtectionOnExit",
+          "burnDurationSeconds",
+          "thrustAcceleration"
         ],
         "properties": {
           "id": { "$ref": "#/$defs/stableId" },
-          "pearlType": { "type": "string", "const": "medicinalLiquid" },
+          "pearlType": {
+            "type": "string",
+            "enum": ["medicinalLiquid", "slag", "impurity"]
+          },
           "standardRadius": { "type": "number", "exclusiveMinimum": 0, "maximum": 512 },
+          "color": { "$ref": "#/$defs/hexColor" },
+          "outlineColor": { "$ref": "#/$defs/hexColor" },
           "spawnVelocity": {
             "type": "object",
             "required": ["minX", "maxX", "minY", "maxY"],
@@ -40,7 +52,12 @@
           "gravity": { "type": "number", "minimum": 0, "maximum": 8192 },
           "drift": { "type": "number", "minimum": 0, "maximum": 4096 },
           "maxSpeed": { "type": "number", "exclusiveMinimum": 0, "maximum": 8192 },
-          "materialRestitution": { "type": "number", "minimum": 0, "maximum": 1 }
+          "materialRestitution": { "type": "number", "minimum": 0, "maximum": 1 },
+          "wallRestitution": { "type": "number", "minimum": 0, "maximum": 1 },
+          "fireProtectionSeconds": { "type": "number", "minimum": 0, "maximum": 10 },
+          "resetProtectionOnExit": { "type": "boolean" },
+          "burnDurationSeconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 60 },
+          "thrustAcceleration": { "type": "number", "minimum": 0, "maximum": 8192 }
         },
         "additionalProperties": false
       }
@@ -52,6 +69,10 @@
       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
       "minLength": 1,
       "maxLength": 64
+    },
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
     }
   },
   "additionalProperties": false

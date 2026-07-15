@@ -39,8 +39,9 @@ afterEach(() => {
 })
 
 describe('M2 原型药材素材生成', () => {
-  test('成分图将所有非透明像素规范化为单一药液青', () => {
+  test('成分图将非透明轮廓稳定分配为药液、药渣和杂质三类', () => {
     const normalized = normalizePrototypeComposition(createComposition())
+    const colors = new Set<string>()
 
     for (let offset = 0; offset < normalized.data.length; offset += 4) {
       if (normalized.data[offset + 3] === 0) {
@@ -48,11 +49,16 @@ describe('M2 原型药材素材生成', () => {
           0, 0, 0, 0,
         ])
       } else {
-        expect(Array.from(normalized.data.subarray(offset, offset + 4))).toEqual([
-          0, 255, 255, 255,
-        ])
+        const color = Array.from(normalized.data.subarray(offset, offset + 4)).join(',')
+        expect(['0,255,255,255', '128,128,128,255', '128,0,128,255']).toContain(color)
+        colors.add(color)
       }
     }
+    expect(colors).toEqual(new Set([
+      '0,255,255,255',
+      '128,128,128,255',
+      '128,0,128,255',
+    ]))
   })
 
   test('512 外观图与 64 成分轮廓严格对齐，描边位于轮廓内', () => {

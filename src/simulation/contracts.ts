@@ -75,7 +75,18 @@ export type NaturalLossDelta =
 
 export type InheritedLossDelta = Readonly<{
   materialInstanceId: MaterialInstanceId
+  theoreticalMedicinalVolume: number
   volume: number
+}>
+
+export type MaterialVolumeChangeDelta = Readonly<{
+  materialInstanceId: MaterialInstanceId
+  previousVolume: number
+  currentVolume: number
+}>
+
+export type PearlShieldActivationDelta = Readonly<{
+  pearlId: PearlId
 }>
 
 export type SimulationDelta = Readonly<{
@@ -86,6 +97,8 @@ export type SimulationDelta = Readonly<{
   terminalOutcomes: readonly PearlTerminalDelta[]
   naturalLosses: readonly NaturalLossDelta[]
   inheritedLosses: readonly InheritedLossDelta[]
+  materialVolumeChanges?: readonly MaterialVolumeChangeDelta[]
+  shieldActivations?: readonly PearlShieldActivationDelta[]
 }>
 
 export type SimulationDeltaError =

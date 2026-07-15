@@ -13,7 +13,6 @@ import {
 import {
   validateAppearancePngHeader,
   validateM2AppearanceMap,
-  validateM2MedicinalLiquidCompositionMap,
 } from './assets'
 import { configIssue, type ConfigIssue } from './errors'
 import { computeSimulationContentFingerprint } from './fingerprint'
@@ -147,13 +146,6 @@ export async function loadBrowserM2GameplayConfig(
     manifest.baseConfigSet,
   )
   if (!gameplayResult.ok) return gameplayResult
-
-  const m2CompositionIssues = baseResult.compositionMaps.flatMap(
-    validateM2MedicinalLiquidCompositionMap,
-  )
-  if (m2CompositionIssues.length > 0) {
-    return { ok: false, issues: m2CompositionIssues }
-  }
 
   const decoder = options.decodePng ?? decodeBrowserPng
   const compositionByPath = new Map(

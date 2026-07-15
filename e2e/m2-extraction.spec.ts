@@ -169,12 +169,12 @@ test.describe('M2 单材料纵向闭环', () => {
     await expect(inventoryButton).toBeFocused()
   })
 
-  test('复用 M1 连续火焰热场与水滴珠表现', async ({ page }) => {
+  test('复用 M1 连续火焰热场与 M3 类型化丹珠表现', async ({ page }) => {
     await openM2(page)
     const canvas = page.locator('canvas[data-scene="m2-extraction"]')
 
     await expect(canvas).toHaveAttribute('data-fire-renderer', 'heat-field')
-    await expect(canvas).toHaveAttribute('data-pearl-renderer', 'droplet')
+    await expect(canvas).toHaveAttribute('data-pearl-renderer', 'typed-m3')
     await expect(canvas).toHaveAttribute(
       'data-fire-occlusion',
       'precise-geometry',
@@ -214,7 +214,7 @@ test.describe('M2 单材料纵向闭环', () => {
       )
       .toBeGreaterThan(0)
     await expect(canvas).toHaveAttribute('data-active-pearl-count', /[1-9]\d*/)
-    await expect(canvas).toHaveAttribute('data-pearl-renderer', 'droplet')
+    await expect(canvas).toHaveAttribute('data-pearl-renderer', 'typed-m3')
     await page.mouse.up()
     await expect(canvas).toHaveAttribute('data-fire-state', 'off')
   })
@@ -343,6 +343,29 @@ test.describe('M2 单材料纵向闭环', () => {
     await slider.focus()
     await page.keyboard.press('End')
     await expect(slider).toHaveValue('100')
+  })
+
+  test('火势助推开关即时同步到模拟状态', async ({ page }) => {
+    await openM2(page)
+    const thrust = page.locator('[data-flame-thrust]')
+
+    await thrust.check()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__LIANDAN_M2__!.getSnapshot().flameThrustEnabled,
+        ),
+      )
+      .toBe(true)
+
+    await thrust.uncheck()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__LIANDAN_M2__!.getSnapshot().flameThrustEnabled,
+        ),
+      )
+      .toBe(false)
   })
 
   test('非等宽舞台只允许从实际画布内开始喷火', async ({ page }) => {
@@ -529,7 +552,9 @@ test.describe('M2 单材料纵向闭环', () => {
       .poll(() => page.evaluate(() => window.__LIANDAN_M2__!.getSnapshot().status))
       .toBe('completed')
 
-    await page.locator('[data-action="again"]').click()
+    await page
+      .locator('[data-completion-dialog] [data-action="again"]')
+      .click()
     await expect
       .poll(() =>
         page.evaluate(() => {

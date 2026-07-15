@@ -31,6 +31,7 @@ export interface M2GameHandle {
   cancelMaterialSelection(): void
   addSelectedMaterial(): void
   setFireSize(size: number): void
+  setFlameThrust(enabled: boolean): void
   requestFinish(): void
   pause(): void
   resume(): void
@@ -151,6 +152,8 @@ export function createM2Game(options: CreateM2GameOptions): M2GameHandle {
       scene.captureRuleCommand({ type: 'AddSelectedMaterial', payload: {} }),
     setFireSize: (size) =>
       scene.captureRuleCommand({ type: 'SetFireSize', payload: { size } }),
+    setFlameThrust: (enabled) =>
+      scene.captureRuleCommand({ type: 'SetFlameThrust', payload: { enabled } }),
     requestFinish: () =>
       scene.captureRuleCommand({ type: 'RequestFinish', payload: {} }),
     pause: () => scene.captureControl({ type: 'Pause', payload: {} }),

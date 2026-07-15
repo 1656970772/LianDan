@@ -188,6 +188,11 @@ test('gAMA 与透明隐藏 RGB 不改变跨端 canonical RGBA 指纹', async ({
             volumePerTick: 0.18,
             exposureProbeDistance: 18,
           },
+          loss: {
+            naturalRatePerMinute: 0.01,
+            warningThresholds: [0.5, 0.65],
+            failureThreshold: 0.7,
+          },
         },
       },
       {

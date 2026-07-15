@@ -61,6 +61,11 @@ interface RawParameters {
     readonly volumePerTick?: number
     readonly exposureProbeDistance?: number
   }>
+  readonly loss?: Readonly<{
+    readonly naturalRatePerMinute?: number
+    readonly warningThresholds?: readonly [number, number]
+    readonly failureThreshold?: number
+  }>
 }
 
 interface RawMaterial {
@@ -114,6 +119,10 @@ function rangeMessage(fieldPath: string): string | undefined {
   if (fieldPath === '/dissolution/exposureProbeDistance') {
     return '受火暴露探测距离必须是有限非负数'
   }
+  if (fieldPath === '/loss/naturalRatePerMinute') {
+    return '自然流失每分钟比例必须在 0..60 之间'
+  }
+  if (fieldPath.startsWith('/loss/')) return '流失警告与失败阈值必须在 0..1 之间'
   return undefined
 }
 
@@ -229,6 +238,21 @@ function staticNumberDefault(schema: JsonSchema, ...propertyPath: string[]): num
     throw new Error(`Schema 字段 ${propertyPath.join('.')} 缺少有限数字 default`)
   }
   return value
+}
+
+function staticNumberPairDefault(
+  schema: JsonSchema,
+  ...propertyPath: string[]
+): readonly [number, number] {
+  const value = propertySchema(schema, ...propertyPath).default
+  if (
+    !Array.isArray(value) ||
+    value.length !== 2 ||
+    value.some((entry) => typeof entry !== 'number' || !Number.isFinite(entry))
+  ) {
+    throw new Error(`Schema 字段 ${propertyPath.join('.')} 缺少两个有限数字 default`)
+  }
+  return [value[0] as number, value[1] as number]
 }
 
 function multipliedNumberDefault(
@@ -393,6 +417,18 @@ function normalize(raw: RawConfigSet, schemas: ConfigSchemaBundle): NormalizedCo
         'exposureProbeDistance',
       ),
   }
+  const warningThresholds =
+    parameters.loss?.warningThresholds ??
+    staticNumberPairDefault(schemas.parameters, 'loss', 'warningThresholds')
+  const loss = {
+    naturalRatePerMinute:
+      parameters.loss?.naturalRatePerMinute ??
+      staticNumberDefault(schemas.parameters, 'loss', 'naturalRatePerMinute'),
+    warningThresholds: [warningThresholds[0], warningThresholds[1]] as const,
+    failureThreshold:
+      parameters.loss?.failureThreshold ??
+      staticNumberDefault(schemas.parameters, 'loss', 'failureThreshold'),
+  }
 
   const materials: NormalizedMaterial[] = raw.materials.map((document) => {
     const material = document.value as RawMaterial
@@ -417,6 +453,7 @@ function normalize(raw: RawConfigSet, schemas: ConfigSchemaBundle): NormalizedCo
       simulation,
       flowField,
       dissolution,
+      loss,
     },
     materials,
   })
@@ -462,6 +499,23 @@ export function validateAndNormalizeConfigSet(
           raw.parameters.filePath,
           '/slagUnitVolume',
           '药渣单位体积必须是有限正数',
+        ),
+      ],
+    }
+  }
+  const [warningOne, warningTwo] = config.parameters.loss.warningThresholds
+  if (
+    warningOne > warningTwo ||
+    warningTwo > config.parameters.loss.failureThreshold
+  ) {
+    return {
+      ok: false,
+      issues: [
+        configIssue(
+          'CONFIG_VALUE_OUT_OF_RANGE',
+          raw.parameters.filePath,
+          '/loss/warningThresholds',
+          '流失阈值必须满足一级警告 <= 二级警告 <= 失败阈值',
         ),
       ],
     }

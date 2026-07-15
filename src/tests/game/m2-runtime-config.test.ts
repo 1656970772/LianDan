@@ -28,6 +28,11 @@ const config: NormalizedM2Config = {
         fullObstacleThreshold: 0.95,
       },
       dissolution: { volumePerTick: 0.18, exposureProbeDistance: 18 },
+      loss: {
+        naturalRatePerMinute: 0.01,
+        warningThresholds: [0.5, 0.65],
+        failureThreshold: 0.7,
+      },
     },
     materials: [
       {
@@ -88,16 +93,59 @@ const config: NormalizedM2Config = {
         maxWidth: 280,
       },
     ],
-    pearlType: {
-      id: 'medicinal-liquid',
-      pearlType: 'medicinalLiquid',
-      standardRadius: 24,
-      spawnVelocity: { minX: -40, maxX: 20, minY: 60, maxY: 120 },
-      gravity: 350,
-      drift: 12,
-      maxSpeed: 500,
-      materialRestitution: 0.25,
-    },
+    pearlTypes: [
+      {
+        id: 'medicinal-liquid',
+        pearlType: 'medicinalLiquid',
+        standardRadius: 24,
+        color: '#78E6D0',
+        outlineColor: '#D9FFF6',
+        spawnVelocity: { minX: -40, maxX: 20, minY: 60, maxY: 120 },
+        gravity: 350,
+        drift: 12,
+        maxSpeed: 500,
+        materialRestitution: 0.25,
+        wallRestitution: 0.5,
+        fireProtectionSeconds: 0.5,
+        resetProtectionOnExit: true,
+        burnDurationSeconds: 2.5,
+        thrustAcceleration: 500,
+      },
+      {
+        id: 'slag',
+        pearlType: 'slag',
+        standardRadius: 22,
+        color: '#8E7C68',
+        outlineColor: '#D0BDA6',
+        spawnVelocity: { minX: -30, maxX: 30, minY: 60, maxY: 120 },
+        gravity: 400,
+        drift: 8,
+        maxSpeed: 480,
+        materialRestitution: 0.2,
+        wallRestitution: 0.4,
+        fireProtectionSeconds: 0.5,
+        resetProtectionOnExit: true,
+        burnDurationSeconds: 2,
+        thrustAcceleration: 420,
+      },
+      {
+        id: 'impurity',
+        pearlType: 'impurity',
+        standardRadius: 20,
+        color: '#B56F9D',
+        outlineColor: '#F0B9DA',
+        spawnVelocity: { minX: -50, maxX: 50, minY: 60, maxY: 120 },
+        gravity: 320,
+        drift: 20,
+        maxSpeed: 520,
+        materialRestitution: 0.3,
+        wallRestitution: 0.6,
+        fireProtectionSeconds: 0.5,
+        resetProtectionOnExit: true,
+        burnDurationSeconds: 2.2,
+        thrustAcceleration: 620,
+      },
+    ],
     collector: {
       initialX: 800,
       y: 820,
@@ -177,9 +225,9 @@ describe('M2 配置到权威运行时映射', () => {
     )
   })
 
-  it('防御性拒绝非药液青成分，不按 alpha 静默映射为药液', () => {
+  it('防御性拒绝未登记成分颜色，不按 alpha 静默映射为药液', () => {
     const map = compositionMap()
-    map.rgba.set([128, 0, 128, 255], (32 * 64 + 32) * 4)
+    map.rgba.set([255, 0, 0, 255], (32 * 64 + 32) * 4)
 
     expect(() => createM2RuntimeConfiguration(config, [map])).toThrow(
       'M2_COMPOSITION_MAP_UNSUPPORTED_COLOR:/assets/masks/prototype-herb-components.png:/pixels/32/32',

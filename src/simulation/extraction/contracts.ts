@@ -42,6 +42,11 @@ export type ExtractionPearlPhysicsConfig = Readonly<{
   driftX: number
   maxSpeed: number
   materialRestitution: number
+  wallRestitution: number
+  fireProtectionSeconds: number
+  resetProtectionOnExit: boolean
+  burnDurationSeconds: number
+  thrustAcceleration: number
 }>
 
 export type ExtractionCollectorConfig = Readonly<{
@@ -68,6 +73,8 @@ export type ExtractionSimulationConfig = Readonly<{
   fixedDeltaSeconds: number
   dissolutionVolumePerTick: number
   exposureProbeDistance: number
+  naturalLossRatePerMinute: number
+  safeZoneY: number
   fireFlow: FireFlowFieldConfig
   materials: readonly ExtractionMaterialDefinition[]
   materialPlacement: ExtractionMaterialPlacementConfig
@@ -111,10 +118,13 @@ export type ExtractionPearlReadView = Readonly<{
   sourceMaterialInstanceId: string
   pearlType: PearlType
   currentVolume: number
+  initialVolume: number
   radius: number
   position: ExtractionVector
   velocity: ExtractionVector
-  state: 'active' | 'caught' | 'missed'
+  state: 'active' | 'caught' | 'missed' | 'burned'
+  shield: Readonly<{ active: boolean; exposureTicks: number }>
+  safeZone: Readonly<{ entered: boolean; enteredTick: number | null }>
 }>
 
 export type ExtractionCollectorReadView = Readonly<{

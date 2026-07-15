@@ -33,6 +33,14 @@ function compositionCodes(map: DecodedCompositionMap): Uint8Array {
       result[index] = 1
       continue
     }
+    if (red === 128 && green === 128 && blue === 128 && alpha === 255) {
+      result[index] = 2
+      continue
+    }
+    if (red === 128 && green === 0 && blue === 128 && alpha === 255) {
+      result[index] = 3
+      continue
+    }
     const x = index % 64
     const y = Math.floor(index / 64)
     throw new Error(
@@ -77,22 +85,41 @@ export function createM2RuntimeConfiguration(
     if (material === undefined) {
       throw new Error(`M2_MATERIAL_DEFINITION_NOT_FOUND:${batch.materialDefinitionId}`)
     }
+    const runtimeMaterial = materials.find((candidate) => candidate.id === material.id)!
+    let medicinalCellCount = 0
+    let nonEmptyCellCount = 0
+    for (const code of runtimeMaterial.composition) {
+      if (code !== 0) nonEmptyCellCount += 1
+      if (code === 1) medicinalCellCount += 1
+    }
+    const volumePerServing =
+      material.targetPearlCount * base.parameters.standardPearlVolume
     return {
       ...batch,
-      volumePerServing:
-        material.targetPearlCount * base.parameters.standardPearlVolume,
+      volumePerServing,
+      medicinalLiquidVolumePerServing:
+        volumePerServing * (medicinalCellCount / nonEmptyCellCount),
     }
   })
 
-  const pearlType = gameplay.pearlType
-  const pearlPhysics: ExtractionPearlPhysicsConfig = {
-    radiusAtStandardVolume: pearlType.standardRadius,
-    spawnVelocity: { ...pearlType.spawnVelocity },
-    gravity: pearlType.gravity,
-    driftX: pearlType.drift,
-    maxSpeed: pearlType.maxSpeed,
-    materialRestitution: pearlType.materialRestitution,
-  }
+  const pearlPhysics = Object.fromEntries(
+    gameplay.pearlTypes.map((pearlType) => [
+      pearlType.pearlType,
+      {
+        radiusAtStandardVolume: pearlType.standardRadius,
+        spawnVelocity: { ...pearlType.spawnVelocity },
+        gravity: pearlType.gravity,
+        driftX: pearlType.drift,
+        maxSpeed: pearlType.maxSpeed,
+        materialRestitution: pearlType.materialRestitution,
+        wallRestitution: pearlType.wallRestitution,
+        fireProtectionSeconds: pearlType.fireProtectionSeconds,
+        resetProtectionOnExit: pearlType.resetProtectionOnExit,
+        burnDurationSeconds: pearlType.burnDurationSeconds,
+        thrustAcceleration: pearlType.thrustAcceleration,
+      } satisfies ExtractionPearlPhysicsConfig,
+    ]),
+  ) as Record<'medicinalLiquid' | 'slag' | 'impurity', ExtractionPearlPhysicsConfig>
   const flow = base.parameters.flowField
   const collector = gameplay.collector
 
@@ -102,6 +129,11 @@ export function createM2RuntimeConfiguration(
       initialFireSize: prototype.initialFireSize,
       initialFireDirection: { ...prototype.initialFireDirection },
       inventoryBatches,
+      settlement: {
+        warningThresholds: [...base.parameters.loss.warningThresholds],
+        failureThreshold: base.parameters.loss.failureThreshold,
+        slagUnitVolume: base.parameters.slagUnitVolume,
+      },
     },
     simulation: {
       seed: prototype.seed,
@@ -109,6 +141,8 @@ export function createM2RuntimeConfiguration(
       fixedDeltaSeconds: 1 / base.parameters.simulation.fixedStepHz,
       dissolutionVolumePerTick: base.parameters.dissolution.volumePerTick,
       exposureProbeDistance: base.parameters.dissolution.exposureProbeDistance,
+      naturalLossRatePerMinute: base.parameters.loss.naturalRatePerMinute,
+      safeZoneY: fireSource.origin.y,
       fireFlow: {
         geometry: {
           columns: flow.gridColumns,
@@ -145,9 +179,9 @@ export function createM2RuntimeConfiguration(
         maxWidth: fireSource.maxWidth,
       },
       pearlPhysics: {
-        medicinalLiquid: pearlPhysics,
-        slag: pearlPhysics,
-        impurity: pearlPhysics,
+        medicinalLiquid: pearlPhysics.medicinalLiquid,
+        slag: pearlPhysics.slag,
+        impurity: pearlPhysics.impurity,
       },
       collector: {
         initialCenter: { x: collector.initialX, y: collector.y },

@@ -10,6 +10,12 @@ export const prototypeRules: PrototypeRules = {
       materialDefinitionId: 'material.herb',
       servings: 2,
       volumePerServing: 10,
+      medicinalLiquidVolumePerServing: 10,
     },
   ],
+  settlement: {
+    warningThresholds: [0.5, 0.65],
+    failureThreshold: 0.7,
+    slagUnitVolume: 100,
+  },
 }
