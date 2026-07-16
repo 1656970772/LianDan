@@ -1,0 +1,895 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liandan.local/schemas/config/m5-visual-evidence.schema.json",
+  "title": "M5 正式视觉证据矩阵",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "protocol",
+    "layout",
+    "fire",
+    "coverage",
+    "accessibility",
+    "failure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "protocol": {
+      "$ref": "#/$defs/protocol"
+    },
+    "layout": {
+      "$ref": "#/$defs/layout"
+    },
+    "fire": {
+      "$ref": "#/$defs/fire"
+    },
+    "coverage": {
+      "$ref": "#/$defs/coverage"
+    },
+    "accessibility": {
+      "$ref": "#/$defs/accessibility"
+    },
+    "failure": {
+      "$ref": "#/$defs/failure"
+    }
+  },
+  "$defs": {
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 100
+    },
+    "positiveMilliseconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "screenshotMode": {
+      "enum": ["full-page", "viewport"]
+    },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "deviceScaleFactor"
+      ],
+      "properties": {
+        "width": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "height": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "deviceScaleFactor": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 2
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "productionMode",
+        "headed",
+        "host",
+        "defaultPort",
+        "deterministicSeed",
+        "galleryScenarioId",
+        "screenshotMode",
+        "browserLaunchArgs",
+        "clock",
+        "timeouts"
+      ],
+      "properties": {
+        "productionMode": {
+          "const": "m2"
+        },
+        "headed": {
+          "const": true
+        },
+        "host": {
+          "const": "127.0.0.1"
+        },
+        "defaultPort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "deterministicSeed": {
+          "type": "integer"
+        },
+        "galleryScenarioId": {
+          "const": "visual-normal"
+        },
+        "screenshotMode": {
+          "const": "full-page"
+        },
+        "browserLaunchArgs": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["--force-device-scale-factor=1", "--mute-audio"]
+          }
+        },
+        "clock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pauseLeadMilliseconds",
+            "pauseMaximumAttempts",
+            "maximumCaptureMilliseconds",
+            "resumeReserveMilliseconds",
+            "sequenceStepMilliseconds"
+          ],
+          "properties": {
+            "pauseLeadMilliseconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pauseMaximumAttempts": {
+              "$ref": "#/$defs/positiveInteger"
+            },
+            "maximumCaptureMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "resumeReserveMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "sequenceStepMilliseconds": {
+              "$ref": "#/$defs/positiveMilliseconds"
+            }
+          }
+        },
+        "timeouts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "buildMilliseconds",
+            "previewReadyMilliseconds",
+            "browserOperationMilliseconds",
+            "failureTriggerMilliseconds",
+            "failurePhaseMilliseconds",
+            "cleanupMilliseconds",
+            "lateCleanupDrainMilliseconds"
+          ],
+          "properties": {
+            "buildMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "previewReadyMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "browserOperationMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "failureTriggerMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "failurePhaseMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "cleanupMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            },
+            "lateCleanupDrainMilliseconds": {
+              "$ref": "#/$defs/timeout"
+            }
+          }
+        }
+      }
+    },
+    "browser": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "channel"
+      ],
+      "properties": {
+        "id": {
+          "const": "stable-chrome"
+        },
+        "channel": {
+          "const": "chrome"
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "browsers",
+        "viewports",
+        "highDprViewport",
+        "narrowViewportMaximumWidth"
+      ],
+      "properties": {
+        "browsers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/browser"
+          }
+        },
+        "viewports": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "width",
+              "height"
+            ],
+            "properties": {
+              "width": {
+                "$ref": "#/$defs/positiveInteger"
+              },
+              "height": {
+                "$ref": "#/$defs/positiveInteger"
+              }
+            }
+          }
+        },
+        "highDprViewport": {
+          "$ref": "#/$defs/viewport"
+        },
+        "narrowViewportMaximumWidth": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    },
+    "fire": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "browserId",
+        "viewport",
+        "fireSourceId",
+        "sizes",
+        "directions",
+        "phaseTrace",
+        "stableWarmupMilliseconds",
+        "maximumSampleLatenessMilliseconds",
+        "phases",
+        "contactSheet"
+      ],
+      "properties": {
+        "browserId": {
+          "const": "stable-chrome"
+        },
+        "viewport": {
+          "$ref": "#/$defs/viewport"
+        },
+        "fireSourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sizes": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "directions": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "logicalTarget"
+            ],
+            "properties": {
+              "id": {
+                "enum": [
+                  "center",
+                  "left",
+                  "right"
+                ]
+              },
+              "logicalTarget": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "phaseTrace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "size",
+            "directionId"
+          ],
+          "properties": {
+            "size": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "directionId": {
+              "enum": [
+                "center",
+                "left",
+                "right"
+              ]
+            }
+          }
+        },
+        "stableWarmupMilliseconds": {
+          "$ref": "#/$defs/timeout"
+        },
+        "maximumSampleLatenessMilliseconds": {
+          "$ref": "#/$defs/timeout"
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "sampleOffsetsMilliseconds"
+            ],
+            "properties": {
+              "id": {
+                "enum": [
+                  "startup",
+                  "steady",
+                  "release"
+                ]
+              },
+              "sampleOffsetsMilliseconds": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 5,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "contactSheet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "columns",
+            "gapPixels",
+            "backgroundColor"
+          ],
+          "properties": {
+            "columns": {
+              "$ref": "#/$defs/positiveInteger"
+            },
+            "gapPixels": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "backgroundColor": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            }
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "viewport",
+        "cases",
+        "materialAlignment",
+        "warningFlow"
+      ],
+      "properties": {
+        "viewport": {
+          "$ref": "#/$defs/viewport"
+        },
+        "cases": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "automation",
+              "requiredStates"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "automation": {
+                "enum": [
+                  "m2-material-topology",
+                  "m2-material-pair-non-overlap",
+                  "gallery",
+                  "m2-thrust-off",
+                  "m2-thrust-on",
+                  "m2-loss-warning"
+                ]
+              },
+              "requiredStates": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "fireSourceId": { "type": "string", "minLength": 1 },
+              "materialBatchId": { "type": "string", "minLength": 1 },
+              "materialDefinitionId": { "type": "string", "minLength": 1 },
+              "materialBatchIds": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "materialDefinitionIds": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "fireSize": { "type": "number", "minimum": 0, "maximum": 100 },
+              "flameThrust": { "const": false },
+              "logicalTarget": { "$ref": "#/$defs/logicalPoint" },
+              "sourceEdge": { "$ref": "#/$defs/sourceEdge" },
+              "epsilon": { "type": "number", "exclusiveMinimum": 0 },
+              "settleMilliseconds": { "$ref": "#/$defs/timeout" },
+              "pollIntervalMilliseconds": { "$ref": "#/$defs/timeout" },
+              "maximumWaitMilliseconds": { "$ref": "#/$defs/timeout" },
+              "stopCondition": { "$ref": "#/$defs/materialStopCondition" },
+              "shapeThresholds": { "$ref": "#/$defs/materialShapeThresholds" },
+              "partialFront": { "$ref": "#/$defs/materialPartialFront" },
+              "expectedTopology": { "$ref": "#/$defs/expectedMaterialTopology" },
+              "warningLevel": { "enum": [1, 2] },
+              "expectedEffect": { "enum": ["warningOne", "warningTwo"] },
+              "expectedMessageZh": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "materialAlignment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "leftKey",
+            "rightKey",
+            "maximumCenterOffset",
+            "deadlineMilliseconds",
+            "pollIntervalMilliseconds",
+            "maximumCorrectionHoldMilliseconds",
+            "settlePaddingMilliseconds",
+            "feedbackActivationDirectionChanges",
+            "feedbackPulseTicks",
+            "feedbackVelocityTolerance"
+          ],
+          "properties": {
+            "leftKey": { "type": "string", "minLength": 1, "maxLength": 1 },
+            "rightKey": { "type": "string", "minLength": 1, "maxLength": 1 },
+            "maximumCenterOffset": { "type": "number", "minimum": 0 },
+            "deadlineMilliseconds": { "$ref": "#/$defs/timeout" },
+            "pollIntervalMilliseconds": { "$ref": "#/$defs/positiveMilliseconds" },
+            "maximumCorrectionHoldMilliseconds": { "$ref": "#/$defs/positiveMilliseconds" },
+            "settlePaddingMilliseconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "feedbackActivationDirectionChanges": { "$ref": "#/$defs/positiveInteger" },
+            "feedbackPulseTicks": { "$ref": "#/$defs/positiveInteger" },
+            "feedbackVelocityTolerance": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "warningFlow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fireSourceId",
+            "fireSize",
+            "materialBatchId",
+            "materialDefinitionId",
+            "flameThrust",
+            "logicalTarget",
+            "collectorMoveKey",
+            "collectorMoveMilliseconds",
+            "collectorSettleMilliseconds",
+            "stopSprayingAtWarningLevel",
+            "maximumStoppedCaptureTickDrift",
+            "maximumWaitMilliseconds"
+          ],
+          "properties": {
+            "fireSourceId": { "type": "string", "minLength": 1 },
+            "fireSize": { "const": 100 },
+            "materialBatchId": { "type": "string", "minLength": 1 },
+            "materialDefinitionId": { "type": "string", "minLength": 1 },
+            "flameThrust": { "const": false },
+            "logicalTarget": { "$ref": "#/$defs/logicalPoint" },
+            "collectorMoveKey": { "type": "string", "minLength": 1, "maxLength": 1 },
+            "collectorMoveMilliseconds": { "$ref": "#/$defs/timeout" },
+            "collectorSettleMilliseconds": { "$ref": "#/$defs/timeout" },
+            "stopSprayingAtWarningLevel": { "const": 2 },
+            "maximumStoppedCaptureTickDrift": { "const": 4 },
+            "maximumWaitMilliseconds": { "$ref": "#/$defs/timeout" }
+          }
+        }
+      }
+    },
+    "logicalPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0 },
+        "y": { "type": "number", "minimum": 0 }
+      }
+    },
+    "sourceEdge": {
+      "enum": ["top", "right", "bottom", "left"]
+    },
+    "unitRatio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "materialShapeThresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deepPenetrationMinimum",
+        "narrowLateralCoverageMaximum",
+        "shallowPenetrationMaximum",
+        "wideLateralCoverageMinimum",
+        "targetLateralRatio",
+        "targetCorridorHalfWidthRatio",
+        "maximumCenterOffsetRatio",
+        "minimumThroughDepthSpanRatio"
+      ],
+      "properties": {
+        "deepPenetrationMinimum": { "$ref": "#/$defs/unitRatio" },
+        "narrowLateralCoverageMaximum": { "$ref": "#/$defs/unitRatio" },
+        "shallowPenetrationMaximum": { "$ref": "#/$defs/unitRatio" },
+        "wideLateralCoverageMinimum": { "$ref": "#/$defs/unitRatio" },
+        "targetLateralRatio": { "$ref": "#/$defs/unitRatio" },
+        "targetCorridorHalfWidthRatio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "maximumCenterOffsetRatio": { "$ref": "#/$defs/unitRatio" },
+        "minimumThroughDepthSpanRatio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "materialStopCondition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "classification",
+            "minimumDissolvedVolumeRatio",
+            "maximumDissolvedVolumeRatio",
+            "minimumRemainingRatio"
+          ],
+          "properties": {
+            "mode": { "const": "topology-classification" },
+            "classification": { "enum": ["deep-narrow", "shallow-wide"] },
+            "minimumDissolvedVolumeRatio": { "$ref": "#/$defs/unitRatio" },
+            "maximumDissolvedVolumeRatio": { "$ref": "#/$defs/unitRatio" },
+            "minimumRemainingRatio": { "$ref": "#/$defs/unitRatio" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "const": "through-connected" }
+          }
+        }
+      ]
+    },
+    "materialPartialFront": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lateralBinCount",
+        "minimumCellErosionRatio",
+        "minimumActiveLaneErosionRatio",
+        "lateralCoverageQuantile",
+        "minimumMeaningfulComponentCellCount"
+      ],
+      "properties": {
+        "lateralBinCount": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 128
+        },
+        "minimumCellErosionRatio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "minimumActiveLaneErosionRatio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "lateralCoverageQuantile": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "minimumMeaningfulComponentCellCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "expectedMaterialTopology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification",
+        "minimumDissolvedVolumeRatio",
+        "maximumDissolvedVolumeRatio",
+        "minimumRemainingRatio",
+        "maximumCollectorCenterOffset",
+        "minimumPenetrationRatio",
+        "maximumPenetrationRatio",
+        "minimumLateralCoverageRatio",
+        "maximumLateralCoverageRatio",
+        "throughConnected"
+      ],
+      "properties": {
+        "classification": {
+          "enum": ["deep-narrow", "shallow-wide", "through-not-empty"]
+        },
+        "minimumDissolvedVolumeRatio": { "$ref": "#/$defs/unitRatio" },
+        "maximumDissolvedVolumeRatio": { "$ref": "#/$defs/unitRatio" },
+        "minimumRemainingRatio": { "$ref": "#/$defs/unitRatio" },
+        "maximumCollectorCenterOffset": { "type": "number", "minimum": 0 },
+        "minimumPenetrationRatio": { "$ref": "#/$defs/unitRatio" },
+        "maximumPenetrationRatio": { "$ref": "#/$defs/unitRatio" },
+        "minimumLateralCoverageRatio": { "$ref": "#/$defs/unitRatio" },
+        "maximumLateralCoverageRatio": { "$ref": "#/$defs/unitRatio" },
+        "throughConnected": { "type": "boolean" }
+      }
+    },
+    "accessibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "browserId",
+        "viewport",
+        "galleryRequiredStates",
+        "captureStates",
+        "modes"
+      ],
+      "properties": {
+        "browserId": {
+          "const": "stable-chrome"
+        },
+        "viewport": {
+          "$ref": "#/$defs/viewport"
+        },
+        "galleryRequiredStates": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "captureStates": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["gallery", "warning-one", "warning-two"]
+          }
+        },
+        "modes": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "visionMode",
+              "reducedMotion",
+              "colorMatrix"
+            ],
+            "properties": {
+              "id": {
+                "enum": [
+                  "grayscale",
+                  "protanopia",
+                  "deuteranopia",
+                  "reduced-motion"
+                ]
+              },
+              "visionMode": {
+                "enum": [
+                  "normal",
+                  "grayscale",
+                  "protanopia",
+                  "deuteranopia"
+                ]
+              },
+              "reducedMotion": {
+                "type": "boolean"
+              },
+              "colorMatrix": {
+                "type": "array",
+                "minItems": 20,
+                "maxItems": 20,
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "browserId",
+        "viewport",
+        "fireSourceId",
+        "fireSize",
+        "materialBatchId",
+        "materialDefinitionId",
+        "interceptedTargetPearlCount",
+        "collectorMoveKey",
+        "collectorMoveMilliseconds",
+        "collectorSettleMilliseconds",
+        "screenshotMode",
+        "phases",
+        "motionModes"
+      ],
+      "properties": {
+        "browserId": {
+          "const": "stable-chrome"
+        },
+        "viewport": {
+          "$ref": "#/$defs/viewport"
+        },
+        "fireSourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fireSize": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "materialBatchId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "materialDefinitionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "interceptedTargetPearlCount": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "collectorMoveKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1
+        },
+        "collectorMoveMilliseconds": {
+          "$ref": "#/$defs/timeout"
+        },
+        "collectorSettleMilliseconds": {
+          "$ref": "#/$defs/timeout"
+        },
+        "screenshotMode": {
+          "const": "viewport"
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "enum": [
+              "trigger",
+              "charring",
+              "shattering",
+              "gathering",
+              "flying",
+              "result"
+            ]
+          }
+        },
+        "motionModes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "reducedMotion"
+            ],
+            "properties": {
+              "id": {
+                "enum": [
+                  "normal",
+                  "reduced"
+                ]
+              },
+              "reducedMotion": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

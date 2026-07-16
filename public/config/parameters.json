@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "dissolution": {
     "volumePerTick": 0.18,
-    "exposureProbeDistance": 18
+    "exposureProbeDistance": 18,
+    "frontLaneWidthCells": 1
   },
   "loss": {
     "naturalRatePerMinute": 0.01,

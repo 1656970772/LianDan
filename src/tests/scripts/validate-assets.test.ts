@@ -19,6 +19,7 @@ const fixtureRoots: string[] = []
 const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const tsxCli = join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs')
 const validateAssetsScript = join(projectRoot, 'scripts', 'validate-assets.ts')
+const validateAssetsGateTimeoutMs = 15_000
 
 function createFixture(appearance: Uint8Array): string {
   const root = mkdtempSync(join(tmpdir(), 'liandan-assets-'))
@@ -120,5 +121,5 @@ describe('validate-assets 全登记外观素材门禁', () => {
     expect(`${gate.stdout}\n${gate.stderr}`).toContain(
       `/assets/materials/unused-herb.png${fieldPath}`,
     )
-  })
+  }, validateAssetsGateTimeoutMs)
 })

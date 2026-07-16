@@ -4,7 +4,8 @@
     {
       "id": "medicinal-liquid",
       "pearlType": "medicinalLiquid",
-      "standardRadius": 24,
+      "standardRadius": 8,
+      "spawnClearance": 2,
       "color": "#78E6D0",
       "outlineColor": "#D9FFF6",
       "spawnVelocity": {
@@ -26,7 +27,8 @@
     {
       "id": "slag",
       "pearlType": "slag",
-      "standardRadius": 22,
+      "standardRadius": 7,
+      "spawnClearance": 2,
       "color": "#8E7C68",
       "outlineColor": "#D0BDA6",
       "spawnVelocity": {
@@ -48,7 +50,8 @@
     {
       "id": "impurity",
       "pearlType": "impurity",
-      "standardRadius": 20,
+      "standardRadius": 6,
+      "spawnClearance": 2,
       "color": "#B56F9D",
       "outlineColor": "#F0B9DA",
       "spawnVelocity": {

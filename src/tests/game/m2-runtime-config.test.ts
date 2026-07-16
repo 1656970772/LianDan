@@ -7,6 +7,8 @@ import type {
 import { createM2RuntimeConfiguration } from '../../game/extraction/runtime-config.ts'
 import { createDomainState } from '../../domain/index.ts'
 import { ExtractionSimulation } from '../../simulation/index.ts'
+import { deriveMaterialContentRectangle } from '../../shared/material-content-geometry.ts'
+import { validM5Presentation } from '../fixtures/m5-presentation.ts'
 
 const config: NormalizedM2Config = {
   schemaVersion: 1,
@@ -27,7 +29,11 @@ const config: NormalizedM2Config = {
         mergeRate: 0.15,
         fullObstacleThreshold: 0.95,
       },
-      dissolution: { volumePerTick: 0.18, exposureProbeDistance: 18 },
+      dissolution: {
+        volumePerTick: 0.18,
+        exposureProbeDistance: 18,
+        frontLaneWidthCells: 1,
+      },
       loss: {
         naturalRatePerMinute: 0.01,
         warningThresholds: [0.5, 0.65],
@@ -51,11 +57,14 @@ const config: NormalizedM2Config = {
       logicalWidth: 1600,
       logicalHeight: 900,
       materialPlacement: {
-        centerX: 800,
-        centerY: 300,
-        size: 180,
-        offsetPerInstance: { x: 200, y: 0 },
-        rotationDegreesPerInstance: 2,
+        visibleLongEdge: 170,
+        minimumGap: 4,
+        usableRegion: { left: 0, top: 0, right: 1600, bottom: 900 },
+        slots: [
+          { centerX: 800, centerY: 300, rotationDegrees: 0 },
+          { centerX: 1000, centerY: 300, rotationDegrees: 2 },
+          { centerX: 1200, centerY: 300, rotationDegrees: 4 },
+        ],
       },
       availableFireSourceIds: ['basic-fire'],
       initialFireSize: 32,
@@ -87,10 +96,16 @@ const config: NormalizedM2Config = {
       {
         id: 'basic-fire',
         nameZh: '凡火',
+        descriptionZh: '丹炉常用的基础火种。',
         origin: { x: 800, y: 700 },
         halfAngleDegrees: 70,
         minWidth: 24,
         maxWidth: 280,
+        baseTemperature: 8,
+        maximumTemperature: 100,
+        heatingRatePerSecond: 24,
+        coolingRatePerSecond: 10,
+        temperatureCurve: 'linear',
       },
     ],
     pearlTypes: [
@@ -98,6 +113,7 @@ const config: NormalizedM2Config = {
         id: 'medicinal-liquid',
         pearlType: 'medicinalLiquid',
         standardRadius: 24,
+        spawnClearance: 2,
         color: '#78E6D0',
         outlineColor: '#D9FFF6',
         spawnVelocity: { minX: -40, maxX: 20, minY: 60, maxY: 120 },
@@ -115,6 +131,7 @@ const config: NormalizedM2Config = {
         id: 'slag',
         pearlType: 'slag',
         standardRadius: 22,
+        spawnClearance: 2,
         color: '#8E7C68',
         outlineColor: '#D0BDA6',
         spawnVelocity: { minX: -30, maxX: 30, minY: 60, maxY: 120 },
@@ -132,6 +149,7 @@ const config: NormalizedM2Config = {
         id: 'impurity',
         pearlType: 'impurity',
         standardRadius: 20,
+        spawnClearance: 2,
         color: '#B56F9D',
         outlineColor: '#F0B9DA',
         spawnVelocity: { minX: -50, maxX: 50, minY: 60, maxY: 120 },
@@ -158,6 +176,7 @@ const config: NormalizedM2Config = {
       maxSpeed: 500,
     },
   },
+  presentation: validM5Presentation(),
 }
 
 function compositionMap(): DecodedCompositionMap {
@@ -176,7 +195,18 @@ describe('M2 配置到权威运行时映射', () => {
     const result = createM2RuntimeConfiguration(config, [compositionMap()])
 
     expect(result.rules).toMatchObject({
+      fixedDeltaSeconds: 1 / 30,
       availableFireSourceIds: ['basic-fire'],
+      fireSources: [
+        {
+          id: 'basic-fire',
+          baseTemperature: 8,
+          maximumTemperature: 100,
+          heatingRatePerSecond: 24,
+          coolingRatePerSecond: 10,
+          temperatureCurve: 'linear',
+        },
+      ],
       initialFireSize: 32,
       inventoryBatches: [
         {
@@ -193,15 +223,19 @@ describe('M2 配置到权威运行时映射', () => {
       fixedDeltaSeconds: 1 / 30,
       dissolutionVolumePerTick: 0.18,
       exposureProbeDistance: 18,
+      frontLaneWidthCells: 1,
       fireFlow: {
         geometry: { columns: 80, rows: 45, cellSize: 20 },
       },
       materialPlacement: {
-        center: { x: 800, y: 300 },
-        width: 180,
-        height: 180,
-        offsetPerInstance: { x: 200, y: 0 },
-        rotationRadiansPerInstance: (2 * Math.PI) / 180,
+        visibleLongEdge: 170,
+        minimumGap: 4,
+        usableRegion: { left: 0, top: 0, right: 1600, bottom: 900 },
+        slots: [
+          { center: { x: 800, y: 300 }, rotationRadians: 0 },
+          { center: { x: 1000, y: 300 }, rotationRadians: (2 * Math.PI) / 180 },
+          { center: { x: 1200, y: 300 }, rotationRadians: (4 * Math.PI) / 180 },
+        ],
       },
       fireSource: {
         origin: { x: 800, y: 700 },
@@ -209,6 +243,7 @@ describe('M2 配置到权威运行时映射', () => {
       },
       pearlPhysics: {
         medicinalLiquid: {
+          spawnClearance: 2,
           spawnVelocity: { minX: -40, maxX: 20, minY: 60, maxY: 120 },
           materialRestitution: 0.25,
         },
@@ -234,7 +269,7 @@ describe('M2 配置到权威运行时映射', () => {
     )
   })
 
-  it('多份材料按映射后的 offset/rotation 分层摆放，流场障碍不再精确重合', () => {
+  it('多份材料按映射后的显式槽位确定性摆放，流场障碍不重合', () => {
     const runtime = createM2RuntimeConfiguration(config, [compositionMap()])
     const simulation = new ExtractionSimulation(runtime.simulation)
     const baseState = createDomainState(runtime.rules)
@@ -256,14 +291,72 @@ describe('M2 配置到权威运行时映射', () => {
     simulation.buildCandidate()
     simulation.commitTick()
 
-    expect(simulation.read().materials.map(({ placement }) => placement)).toMatchObject([
+    const contentRectangles = simulation.read().materials.map((material) =>
+      deriveMaterialContentRectangle(
+        material.placement,
+        material.composition,
+      ),
+    )
+    ;[
       { center: { x: 800, y: 300 }, rotationRadians: 0 },
       { center: { x: 1000, y: 300 }, rotationRadians: (2 * Math.PI) / 180 },
       { center: { x: 1200, y: 300 }, rotationRadians: (4 * Math.PI) / 180 },
-    ])
+    ].forEach((expected, index) => {
+      expect(contentRectangles[index]!.center.x).toBeCloseTo(
+        expected.center.x,
+        9,
+      )
+      expect(contentRectangles[index]!.center.y).toBeCloseTo(
+        expected.center.y,
+        9,
+      )
+      expect(contentRectangles[index]!.rotationRadians).toBeCloseTo(
+        expected.rotationRadians,
+        12,
+      )
+    })
     const obstacle = simulation.read().fireFlow.obstacle
     expect(obstacle[15 * 80 + 40]).toBeGreaterThan(0)
     expect(obstacle[15 * 80 + 50]).toBeGreaterThan(0)
     expect(obstacle[15 * 80 + 60]).toBeGreaterThan(0)
+  })
+
+  it('材料按初始非空 composition bounds 固定放大到 170 逻辑像素并以内容中心对齐槽位', () => {
+    const runtime = createM2RuntimeConfiguration(config, [compositionMap()])
+    const simulation = new ExtractionSimulation(runtime.simulation)
+    const baseState = createDomainState(runtime.rules)
+    const state = {
+      ...baseState,
+      status: 'extracting' as const,
+      materialInstances: [
+        {
+          materialInstanceId: 'material-0',
+          materialDefinitionId: 'prototype-herb',
+          inventoryBatchId: 'prototype-herb-batch',
+          initialVolume: 6,
+          remainingVolume: 6,
+        },
+      ],
+    }
+
+    simulation.beginTick({ tick: 0, domainState: state })
+    for (let phase = 1; phase <= 7; phase += 1) {
+      simulation.runPhase(phase as 1 | 2 | 3 | 4 | 5 | 6 | 7, state)
+    }
+    simulation.buildCandidate()
+    simulation.commitTick()
+
+    const material = simulation.read().materials[0]!
+    const visibleCellLongEdge = material.placement.width / 64
+    const localContentCenterX =
+      ((32.5 / 64) - 0.5) * material.placement.width
+    const localContentCenterY =
+      ((32.5 / 64) - 0.5) * material.placement.height
+
+    expect(visibleCellLongEdge).toBeCloseTo(170, 9)
+    expect({
+      x: material.placement.center.x + localContentCenterX,
+      y: material.placement.center.y + localContentCenterY,
+    }).toEqual({ x: 800, y: 300 })
   })
 })

@@ -1,5 +1,10 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js'
 
+import {
+  orientedMaterialRectangleIsWithinBounds,
+  orientedMaterialRectanglesHaveInteriorIntersection,
+  type OrientedMaterialRectangle,
+} from '../shared/material-placement-geometry.ts'
 import { configIssue, type ConfigIssue } from './errors'
 import { deriveBatchTags } from './tag-derivation'
 import type {
@@ -9,6 +14,7 @@ import type {
   NormalizedM2GameplayConfig,
   NormalizedM2Interaction,
   NormalizedM2PearlType,
+  NormalizedM2PresentationConfig,
   NormalizedM2Prototype,
   RawM2GameplayConfig,
 } from './m2-gameplay-model'
@@ -17,7 +23,11 @@ import type { NormalizedConfig, RawConfigDocument } from './model'
 export type { RawM2GameplayConfig } from './m2-gameplay-model'
 
 export type M2GameplayValidationResult =
-  | Readonly<{ ok: true; config: NormalizedM2GameplayConfig }>
+  | Readonly<{
+      ok: true
+      config: NormalizedM2GameplayConfig
+      presentation: NormalizedM2PresentationConfig
+    }>
   | Readonly<{ ok: false; issues: readonly ConfigIssue[] }>
 
 interface CompiledM2Schemas {
@@ -27,6 +37,7 @@ interface CompiledM2Schemas {
   readonly pearlTypes: ValidateFunction
   readonly collector: ValidateFunction
   readonly interactions: ValidateFunction
+  readonly presentation: ValidateFunction
 }
 
 interface RawManifest {
@@ -37,6 +48,7 @@ interface RawManifest {
   readonly pearlTypes: string
   readonly collector: string
   readonly interactions?: string
+  readonly presentation: string
 }
 
 interface RawPrototype extends NormalizedM2Prototype {
@@ -62,6 +74,8 @@ interface RawInteractions {
   readonly interactions: readonly NormalizedM2Interaction[]
 }
 
+type RawPresentation = NormalizedM2PresentationConfig
+
 function compileSchemas(schemas: M2GameplaySchemaBundle): CompiledM2Schemas {
   const ajv = new Ajv2020({
     allErrors: true,
@@ -76,6 +90,7 @@ function compileSchemas(schemas: M2GameplaySchemaBundle): CompiledM2Schemas {
     pearlTypes: ajv.compile(schemas.pearlTypes),
     collector: ajv.compile(schemas.collector),
     interactions: ajv.compile(schemas.interactions),
+    presentation: ajv.compile(schemas.presentation),
   }
 }
 
@@ -149,11 +164,6 @@ function semanticIssue(
   return configIssue('CONFIG_SCHEMA_VIOLATION', filePath, fieldPath, messageZh)
 }
 
-function normalizedRotationDegrees(value: number): number {
-  const normalized = value % 360
-  return normalized < 0 ? normalized + 360 : normalized
-}
-
 function collectSemanticIssues(
   raw: RawM2GameplayConfig,
   baseConfig: NormalizedConfig,
@@ -165,6 +175,7 @@ function collectSemanticIssues(
   const pearlDocument = raw.pearlTypes.value as RawPearlTypes
   const collector = raw.collector.value as RawCollector
   const interactionDocument = raw.interactions?.value as RawInteractions | undefined
+  const presentation = raw.presentation.value as RawPresentation
   const issues: ConfigIssue[] = []
 
   const referencedDocuments = [
@@ -173,6 +184,7 @@ function collectSemanticIssues(
     ['fireSources', manifest.fireSources, raw.fireSources.filePath],
     ['pearlTypes', manifest.pearlTypes, raw.pearlTypes.filePath],
     ['collector', manifest.collector, raw.collector.filePath],
+    ['presentation', manifest.presentation, raw.presentation.filePath],
   ] as const
   for (const [field, referenced, loaded] of referencedDocuments) {
     if (referenced !== loaded) {
@@ -205,6 +217,75 @@ function collectSemanticIssues(
         raw.interactions.filePath,
         '',
         '互动配置未在 m2-config-set.json 中登记',
+      ),
+    )
+  }
+
+  if (presentation.fire.steadyThresholdSeconds > presentation.fire.emergenceSeconds) {
+    issues.push(
+      semanticIssue(
+        raw.presentation.filePath,
+        '/fire/steadyThresholdSeconds',
+        '稳焰阈值不得晚于火焰涌现完成时间',
+      ),
+    )
+  }
+  if (
+    presentation.temperature.warmRatio >=
+    presentation.temperature.blazingRatio
+  ) {
+    issues.push(
+      semanticIssue(
+        raw.presentation.filePath,
+        '/temperature/warmRatio',
+        '温火阈值必须小于炽盛阈值',
+      ),
+    )
+  }
+  if (
+    presentation.failure.shatteringStartRatio >=
+    presentation.failure.gatheringStartRatio
+  ) {
+    issues.push(
+      semanticIssue(
+        raw.presentation.filePath,
+        '/failure/gatheringStartRatio',
+        '失败破碎、汇聚与飞出阶段比例必须严格递增',
+      ),
+    )
+  } else if (
+    presentation.failure.gatheringStartRatio >=
+    presentation.failure.flyingStartRatio
+  ) {
+    issues.push(
+      semanticIssue(
+        raw.presentation.filePath,
+        '/failure/flyingStartRatio',
+        '失败破碎、汇聚与飞出阶段比例必须严格递增',
+      ),
+    )
+  }
+  if (
+    presentation.accessibility.reducedMotionFailureDurationSeconds >
+    presentation.effects.failureDurationSeconds
+  ) {
+    issues.push(
+      semanticIssue(
+        raw.presentation.filePath,
+        '/accessibility/reducedMotionFailureDurationSeconds',
+        '减少动态效果时的失败转场不得长于标准失败转场',
+      ),
+    )
+  }
+  if (
+    presentation.performance.effectPoolInitialCapacity >
+    presentation.performance.effectPoolMaximumCapacity
+  ) {
+    issues.push(
+      semanticIssue(
+        raw.presentation.filePath,
+        '/performance/effectPoolInitialCapacity',
+        '特效池预热容量不得大于最大容量',
       ),
     )
   }
@@ -304,6 +385,15 @@ function collectSemanticIssues(
         ),
       )
     }
+    if (source.maximumTemperature <= source.baseTemperature) {
+      issues.push(
+        semanticIssue(
+          raw.fireSources.filePath,
+          `/fireSources/${index}/maximumTemperature`,
+          '火种最高温度必须高于基础温度',
+        ),
+      )
+    }
     if (
       source.origin.x > prototype.logicalWidth ||
       source.origin.y > prototype.logicalHeight
@@ -335,59 +425,67 @@ function collectSemanticIssues(
     (total, batch) => total + batch.servings,
     0,
   )
-  let placementOutsideScene = false
-  let duplicatePlacement = false
-  const placementTransforms: Array<
-    Readonly<{ center: Readonly<{ x: number; y: number }>; rotationDegrees: number }>
-  > = []
-  for (let layer = 0; layer < materialInstanceCount; layer += 1) {
-    const center = {
-      x: placement.centerX + placement.offsetPerInstance.x * layer,
-      y: placement.centerY + placement.offsetPerInstance.y * layer,
-    }
-    const rotationDegrees = normalizedRotationDegrees(
-      placement.rotationDegreesPerInstance * layer,
+  const region = placement.usableRegion
+  if (
+    region.right <= region.left ||
+    region.bottom <= region.top ||
+    region.right > prototype.logicalWidth ||
+    region.bottom > prototype.logicalHeight
+  ) {
+    issues.push(
+      semanticIssue(
+        raw.prototype.filePath,
+        '/materialPlacement/usableRegion',
+        '材料可用摆放区域必须是完整位于 M2 逻辑场景内的正面积矩形',
+      ),
     )
-    const rotation = (rotationDegrees * Math.PI) / 180
-    const halfExtent =
-      placement.size * 0.5 * (Math.abs(Math.cos(rotation)) + Math.abs(Math.sin(rotation)))
-    if (
-      center.x - halfExtent < 0 ||
-      center.x + halfExtent > prototype.logicalWidth ||
-      center.y - halfExtent < 0 ||
-      center.y + halfExtent > prototype.logicalHeight
-    ) {
-      placementOutsideScene = true
-      break
+  }
+  if (placement.slots.length < materialInstanceCount) {
+    issues.push(
+      semanticIssue(
+        raw.prototype.filePath,
+        '/materialPlacement/slots',
+        `材料摆放槽位不足：库存共 ${materialInstanceCount} 份，配置仅提供 ${placement.slots.length} 个槽位`,
+      ),
+    )
+  }
+  const placementRectangles: OrientedMaterialRectangle[] = []
+  placement.slots.forEach((slot, index) => {
+    const rectangle: OrientedMaterialRectangle = {
+      center: { x: slot.centerX, y: slot.centerY },
+      width: placement.visibleLongEdge,
+      height: placement.visibleLongEdge,
+      rotationRadians: (slot.rotationDegrees * Math.PI) / 180,
     }
-    if (
-      placementTransforms.some(
-        (previous) =>
-          Math.abs(previous.center.x - center.x) <= 1e-9 &&
-          Math.abs(previous.center.y - center.y) <= 1e-9 &&
-          Math.abs(previous.rotationDegrees - rotationDegrees) <= 1e-9,
+    if (!orientedMaterialRectangleIsWithinBounds(rectangle, region)) {
+      issues.push(
+        semanticIssue(
+          raw.prototype.filePath,
+          `/materialPlacement/slots/${index}`,
+          '材料摆放槽位旋转后的完整范围必须位于可用摆放区域内',
+        ),
       )
-    ) duplicatePlacement = true
-    placementTransforms.push({ center, rotationDegrees })
-  }
-  if (placementOutsideScene) {
-    issues.push(
-      semanticIssue(
-        raw.prototype.filePath,
-        '/materialPlacement',
-        '材料摆放区域必须完整位于 M2 逻辑场景内',
-      ),
-    )
-  }
-  if (duplicatePlacement) {
-    issues.push(
-      semanticIssue(
-        raw.prototype.filePath,
-        '/materialPlacement/offsetPerInstance',
-        '多份材料的配置化摆放不得使用完全相同的位置与旋转',
-      ),
-    )
-  }
+    }
+    const gapRectangle: OrientedMaterialRectangle = {
+      ...rectangle,
+      width: rectangle.width + placement.minimumGap,
+      height: rectangle.height + placement.minimumGap,
+    }
+    if (
+      placementRectangles.some((previous) =>
+        orientedMaterialRectanglesHaveInteriorIntersection(previous, gapRectangle),
+      )
+    ) {
+      issues.push(
+        semanticIssue(
+          raw.prototype.filePath,
+          `/materialPlacement/slots/${index}`,
+          '材料摆放槽位之间不得发生内部相交，边缘或角点接触允许',
+        ),
+      )
+    }
+    placementRectangles.push(gapRectangle)
+  })
 
   const direction = prototype.initialFireDirection
   if (Math.abs(Math.hypot(direction.x, direction.y) - 1) > 1e-9 || direction.y >= 0) {
@@ -553,8 +651,10 @@ function normalize(
       logicalWidth: prototype.logicalWidth,
       logicalHeight: prototype.logicalHeight,
       materialPlacement: {
-        ...prototype.materialPlacement,
-        offsetPerInstance: { ...prototype.materialPlacement.offsetPerInstance },
+        visibleLongEdge: prototype.materialPlacement.visibleLongEdge,
+        minimumGap: prototype.materialPlacement.minimumGap,
+        usableRegion: { ...prototype.materialPlacement.usableRegion },
+        slots: prototype.materialPlacement.slots.map((slot) => ({ ...slot })),
       },
       availableFireSourceIds: [...prototype.availableFireSourceIds],
       initialFireSize: prototype.initialFireSize,
@@ -627,6 +727,14 @@ function normalize(
   })
 }
 
+function normalizePresentation(
+  raw: RawM2GameplayConfig,
+): NormalizedM2PresentationConfig {
+  return deepFreeze(
+    structuredClone(raw.presentation.value as RawPresentation),
+  )
+}
+
 export function validateAndNormalizeM2GameplayConfig(
   raw: RawM2GameplayConfig,
   schemas: M2GameplaySchemaBundle,
@@ -643,10 +751,15 @@ export function validateAndNormalizeM2GameplayConfig(
     ...(raw.interactions === undefined
       ? []
       : validateDocument(raw.interactions, compiled.interactions)),
+    ...validateDocument(raw.presentation, compiled.presentation),
   ]
   if (schemaIssues.length > 0) return { ok: false, issues: schemaIssues }
 
   const semanticIssues = collectSemanticIssues(raw, baseConfig, baseConfigSetPath)
   if (semanticIssues.length > 0) return { ok: false, issues: semanticIssues }
-  return { ok: true, config: normalize(raw, baseConfig) }
+  return {
+    ok: true,
+    config: normalize(raw, baseConfig),
+    presentation: normalizePresentation(raw),
+  }
 }

@@ -26,8 +26,21 @@ export type ExtractionSettlementRules = Readonly<{
   slagUnitVolume: number
 }>
 
+export type FurnaceTemperatureCurve = 'linear'
+
+export type FurnaceFireSourceRule = Readonly<{
+  id: string
+  baseTemperature: number
+  maximumTemperature: number
+  heatingRatePerSecond: number
+  coolingRatePerSecond: number
+  temperatureCurve: FurnaceTemperatureCurve
+}>
+
 export type PrototypeRules = Readonly<{
+  fixedDeltaSeconds: number
   availableFireSourceIds: readonly string[]
+  fireSources: readonly FurnaceFireSourceRule[]
   initialFireSize: number
   initialFireDirection: Vector2
   inventoryBatches: readonly InventoryBatchRule[]
@@ -86,6 +99,7 @@ export type DomainState = Readonly<{
   equippedFireSourceId: string | null
   fireSize: number
   isSpraying: boolean
+  furnaceTemperature: number
   fireDirection: Vector2
   containerAxis: number
   flameThrustEnabled: boolean
@@ -124,6 +138,7 @@ function emptyLedger(): DomainLedger {
 export function createDomainState(rules: PrototypeRules): DomainState {
   const inventory: Record<string, number> = {}
   for (const batch of rules.inventoryBatches) inventory[batch.batchId] = batch.servings
+  const initialFireSource = furnaceFireSource(rules, rules.availableFireSourceIds[0] ?? null)
 
   return {
     status: 'ready',
@@ -134,6 +149,7 @@ export function createDomainState(rules: PrototypeRules): DomainState {
     equippedFireSourceId: null,
     fireSize: rules.initialFireSize,
     isSpraying: false,
+    furnaceTemperature: initialFireSource.baseTemperature,
     fireDirection: { ...rules.initialFireDirection },
     containerAxis: 0,
     flameThrustEnabled: false,
@@ -143,6 +159,59 @@ export function createDomainState(rules: PrototypeRules): DomainState {
     ledger: emptyLedger(),
     lastCommittedTick: -1,
   }
+}
+
+function furnaceFireSource(
+  rules: PrototypeRules,
+  fireSourceId: string | null,
+): FurnaceFireSourceRule {
+  const resolvedId = fireSourceId ?? rules.availableFireSourceIds[0]
+  const source = rules.fireSources.find((candidate) => candidate.id === resolvedId)
+  if (source === undefined) throw new Error('DOMAIN_FIRE_SOURCE_RULE_NOT_FOUND')
+  return source
+}
+
+function moveTowards(current: number, target: number, maximumDelta: number): number {
+  if (current < target) return Math.min(target, current + maximumDelta)
+  if (current > target) return Math.max(target, current - maximumDelta)
+  return current
+}
+
+function targetFurnaceTemperature(
+  source: FurnaceFireSourceRule,
+  effectiveFireSize: number,
+): number {
+  switch (source.temperatureCurve) {
+    case 'linear':
+      return (
+        source.baseTemperature +
+        (source.maximumTemperature - source.baseTemperature) *
+          (effectiveFireSize / FIRE_SIZE_MAX)
+      )
+  }
+}
+
+export function advanceFurnaceTemperature(
+  state: DomainState,
+  rules: PrototypeRules,
+): DomainState {
+  if (state.status === 'failed' || state.status === 'completed') return state
+
+  const source = furnaceFireSource(rules, state.equippedFireSourceId)
+  const effectiveFireSize =
+    state.equippedFireSourceId !== null && state.isSpraying ? state.fireSize : 0
+  const targetTemperature = targetFurnaceTemperature(source, effectiveFireSize)
+  const rate =
+    targetTemperature > state.furnaceTemperature
+      ? source.heatingRatePerSecond
+      : source.coolingRatePerSecond
+  const furnaceTemperature = moveTowards(
+    state.furnaceTemperature,
+    targetTemperature,
+    rate * rules.fixedDeltaSeconds,
+  )
+  if (furnaceTemperature === state.furnaceTemperature) return state
+  return { ...state, furnaceTemperature }
 }
 
 export function deriveTheoreticalMedicinalVolume(state: DomainState): number {

@@ -22,6 +22,10 @@ export default defineConfig({
   outputDir: 'output/playwright/results',
   use: {
     baseURL: `http://${host}:${port}`,
+    launchOptions: {
+      // 浏览器级静音，不绕过应用 WebAudio 生命周期与诊断语义。
+      args: ['--mute-audio'],
+    },
     screenshot: 'off',
     trace: 'off',
     video: 'off',
@@ -32,13 +36,6 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         channel: 'chrome',
-      },
-    },
-    {
-      name: 'stable-edge',
-      use: {
-        ...devices['Desktop Edge'],
-        channel: 'msedge',
       },
     },
   ],

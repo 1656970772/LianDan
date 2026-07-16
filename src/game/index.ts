@@ -18,3 +18,21 @@ export {
   type M2GameHandle,
 } from './createM2Game.ts'
 export type { M2BrowserApi, M2Snapshot } from './extraction/contracts.ts'
+export {
+  createM5VisualPerformanceGame,
+  type CreateM5VisualPerformanceGameOptions,
+  type M5VisualPerformanceGameHandle,
+} from './createM5VisualPerformanceGame.ts'
+export type {
+  M5VisualPerformanceBrowserApi,
+  M5VisualPerformanceSnapshot,
+} from './m5-performance/contracts.ts'
+export {
+  evaluateM5VisualPerformanceGate,
+  summarizeM5VisualPerformanceSample,
+  type M5VisualPerformanceGate,
+  type M5VisualPerformanceGateCheck,
+  type M5VisualPerformanceSample,
+  type M5VisualPerformanceSummary,
+  type M5VisualPerformanceThresholds,
+} from './m5-performance/m5-visual-performance-metrics.ts'

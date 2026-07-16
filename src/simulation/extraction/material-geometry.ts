@@ -91,6 +91,13 @@ function segmentIntersectsAxisAlignedBox(
   right: number,
   bottom: number,
 ): boolean {
+  const interiorEpsilon =
+    Math.max(1, right - left, bottom - top) * 1e-9
+  left += interiorEpsilon
+  top += interiorEpsilon
+  right -= interiorEpsilon
+  bottom -= interiorEpsilon
+  if (left >= right || top >= bottom) return false
   let minimumTime = 0
   let maximumTime = 1
   const deltaX = end.x - start.x
@@ -241,6 +248,93 @@ export function circleIntersectsRemainingMaterial(
     }
   }
   return false
+}
+
+/**
+ * 返回圆与剩余材料格最深接触处、由材料指向圆心的世界法线。
+ * 相同穿透量按材料与 cell 的稳定遍历顺序取首个，保证 replay 确定性。
+ */
+export function circleRemainingMaterialCollisionNormal(
+  materials: readonly MaterialGeometryState[],
+  center: ExtractionVector,
+  radius: number,
+): ExtractionVector | null {
+  const radiusSquared = radius * radius
+  let deepestPenetration = -1
+  let collisionNormal: ExtractionVector | null = null
+  for (const material of materials) {
+    const localCenter = rotateWorldToLocal(material.placement, center)
+    const cellWidth = material.placement.width / GRID_SIZE
+    const cellHeight = material.placement.height / GRID_SIZE
+    const halfWidth = material.placement.width * 0.5
+    const halfHeight = material.placement.height * 0.5
+    const minimumColumn = Math.max(
+      0,
+      Math.floor((localCenter.x - radius + halfWidth) / cellWidth),
+    )
+    const maximumColumn = Math.min(
+      GRID_SIZE - 1,
+      Math.floor((localCenter.x + radius + halfWidth) / cellWidth),
+    )
+    const minimumRow = Math.max(
+      0,
+      Math.floor((localCenter.y - radius + halfHeight) / cellHeight),
+    )
+    const maximumRow = Math.min(
+      GRID_SIZE - 1,
+      Math.floor((localCenter.y + radius + halfHeight) / cellHeight),
+    )
+    if (minimumColumn > maximumColumn || minimumRow > maximumRow) continue
+
+    for (let row = minimumRow; row <= maximumRow; row += 1) {
+      const top = -halfHeight + row * cellHeight
+      const bottom = top + cellHeight
+      for (let column = minimumColumn; column <= maximumColumn; column += 1) {
+        const cellIndex = row * GRID_SIZE + column
+        if ((material.remainingCellVolumes[cellIndex] ?? 0) <= 0) continue
+        const left = -halfWidth + column * cellWidth
+        const right = left + cellWidth
+        const closestX = Math.max(left, Math.min(right, localCenter.x))
+        const closestY = Math.max(top, Math.min(bottom, localCenter.y))
+        const deltaX = localCenter.x - closestX
+        const deltaY = localCenter.y - closestY
+        const distanceSquared = deltaX * deltaX + deltaY * deltaY
+        if (distanceSquared > radiusSquared) continue
+
+        let localNormalX: number
+        let localNormalY: number
+        let penetration: number
+        if (distanceSquared > Number.EPSILON) {
+          const distance = Math.sqrt(distanceSquared)
+          localNormalX = deltaX / distance
+          localNormalY = deltaY / distance
+          penetration = radius - distance
+        } else {
+          const edgeDistances = [
+            { distance: localCenter.x - left, x: -1, y: 0 },
+            { distance: right - localCenter.x, x: 1, y: 0 },
+            { distance: localCenter.y - top, x: 0, y: -1 },
+            { distance: bottom - localCenter.y, x: 0, y: 1 },
+          ]
+          const nearestEdge = edgeDistances.reduce((nearest, candidate) =>
+            candidate.distance < nearest.distance ? candidate : nearest,
+          )
+          localNormalX = nearestEdge.x
+          localNormalY = nearestEdge.y
+          penetration = radius + nearestEdge.distance
+        }
+        if (penetration <= deepestPenetration) continue
+        const cosine = Math.cos(material.placement.rotationRadians)
+        const sine = Math.sin(material.placement.rotationRadians)
+        deepestPenetration = penetration
+        collisionNormal = {
+          x: localNormalX * cosine - localNormalY * sine,
+          y: localNormalX * sine + localNormalY * cosine,
+        }
+      }
+    }
+  }
+  return collisionNormal
 }
 
 function markFlowCell(

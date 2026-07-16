@@ -15,6 +15,11 @@ export {
   type BrowserM1FireFlowLoaderOptions,
   type BrowserM1FireFlowLoadResult,
 } from './browser-m1-fire-flow-loader'
+export {
+  loadBrowserM5VisualPerformanceFixture,
+  type BrowserM5VisualPerformanceLoaderOptions,
+  type BrowserM5VisualPerformanceLoadResult,
+} from './browser-m5-visual-performance-loader.ts'
 export type { ConfigErrorCode, ConfigIssue } from './errors'
 export {
   canonicalizeJson,
@@ -25,6 +30,7 @@ export {
 } from './fingerprint'
 export { createSimulationFingerprintInput } from './fingerprint-input'
 export { createM2SimulationFingerprintInput } from './m2-fingerprint-input'
+export { computeM2PresentationContentFingerprint } from './m2-presentation-fingerprint'
 export {
   deriveBatchTags,
   type DerivedBatchTagsResult,
@@ -37,6 +43,13 @@ export {
   type M1PerformanceScenario,
   type M1TechnicalProbe,
 } from './m1-fire-flow-fixture'
+export {
+  validateM5VisualPerformanceFixtureSemantics,
+  type M5VisualPerformanceEffectKind,
+  type M5VisualPerformanceFixture,
+  type M5VisualPerformanceFixtureIssue,
+  type M5VisualPerformanceScenario,
+} from './m5-visual-performance-fixture.ts'
 export {
   validateM1RuntimeCompatibility,
   type M1LogicalWorldRequirement,
@@ -51,6 +64,9 @@ export type {
   NormalizedM2InteractionSelector,
   NormalizedM2GameplayConfig,
   NormalizedM2PearlType,
+  NormalizedM2PearlPresentationProfile,
+  NormalizedM2AudioProfile,
+  NormalizedM2PresentationConfig,
   NormalizedM2Prototype,
   NormalizedM2Theme,
   RawM2GameplayConfig,

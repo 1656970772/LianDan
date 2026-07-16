@@ -10,7 +10,18 @@ import {
 } from '../../simulation/index.ts'
 
 const rules: PrototypeRules = {
+  fixedDeltaSeconds: 1 / 30,
   availableFireSourceIds: ['fire.basic'],
+  fireSources: [
+    {
+      id: 'fire.basic',
+      baseTemperature: 8,
+      maximumTemperature: 100,
+      heatingRatePerSecond: 24,
+      coolingRatePerSecond: 10,
+      temperatureCurve: 'linear',
+    },
+  ],
   initialFireSize: 100,
   initialFireDirection: { x: 0, y: -1 },
   inventoryBatches: [
@@ -36,6 +47,7 @@ function simulationConfig(): ExtractionSimulationConfig {
   composition[32 * 64 + 33] = 1
   const pearlPhysics = {
     radiusAtStandardVolume: 2,
+    spawnClearance: 0,
     spawnVelocity: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
     gravity: 0,
     driftX: 0,
@@ -53,6 +65,7 @@ function simulationConfig(): ExtractionSimulationConfig {
     fixedDeltaSeconds: 1 / 30,
     dissolutionVolumePerTick: 0.1,
     exposureProbeDistance: 2,
+    frontLaneWidthCells: 1,
     naturalLossRatePerMinute: 0,
     safeZoneY: 112,
     fireFlow: {
@@ -74,11 +87,10 @@ function simulationConfig(): ExtractionSimulationConfig {
     },
     materials: [{ id: 'material.herb', targetPearlCount: 1, composition }],
     materialPlacement: {
-      center: { x: 64, y: 48 },
-      width: 8,
-      height: 8,
-      offsetPerInstance: { x: 0, y: 0 },
-      rotationRadiansPerInstance: 0,
+      visibleLongEdge: 1,
+      minimumGap: 0,
+      usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+      slots: [{ center: { x: 64, y: 48 }, rotationRadians: 0 }],
     },
     fireSource: {
       origin: { x: 64, y: 112 },

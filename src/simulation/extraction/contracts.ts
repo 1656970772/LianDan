@@ -16,11 +16,18 @@ export type ExtractionMaterialDefinition = Readonly<{
 }>
 
 export type ExtractionMaterialPlacementConfig = Readonly<{
-  center: ExtractionVector
-  width: number
-  height: number
-  offsetPerInstance: ExtractionVector
-  rotationRadiansPerInstance: number
+  visibleLongEdge: number
+  minimumGap: number
+  usableRegion: Readonly<{
+    left: number
+    top: number
+    right: number
+    bottom: number
+  }>
+  slots: readonly Readonly<{
+    center: ExtractionVector
+    rotationRadians: number
+  }>[]
 }>
 
 export type ExtractionFireSourceConfig = Readonly<{
@@ -32,6 +39,7 @@ export type ExtractionFireSourceConfig = Readonly<{
 
 export type ExtractionPearlPhysicsConfig = Readonly<{
   radiusAtStandardVolume: number
+  spawnClearance: number
   spawnVelocity: Readonly<{
     minX: number
     maxX: number
@@ -90,6 +98,7 @@ export type ExtractionSimulationConfig = Readonly<{
   fixedDeltaSeconds: number
   dissolutionVolumePerTick: number
   exposureProbeDistance: number
+  frontLaneWidthCells: number
   naturalLossRatePerMinute: number
   safeZoneY: number
   fireFlow: FireFlowFieldConfig

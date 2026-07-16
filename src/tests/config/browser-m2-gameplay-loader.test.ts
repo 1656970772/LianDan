@@ -5,6 +5,7 @@ import {
   loadBrowserM2GameplayConfig,
   type BrowserM2GameplayLoaderOptions,
 } from '../../config/browser-m2-gameplay-loader'
+import { validM5Presentation } from '../fixtures/m5-presentation'
 
 function validCompositionPng(): Uint8Array {
   const png = new PNG({ width: 64, height: 64 })
@@ -26,6 +27,7 @@ function validAppearancePng(): Uint8Array {
 
 function validPearlTypes() {
   const shared = {
+    spawnClearance: 2,
     color: '#78E6D0',
     outlineColor: '#D9FFF6',
     spawnVelocity: { minX: -45, maxX: 45, minY: 60, maxY: 120 },
@@ -69,6 +71,7 @@ function documents(): Record<string, unknown> {
       fireSources: '/config/m2/fire-sources.json',
       pearlTypes: '/config/m2/pearl-types.json',
       collector: '/config/m2/collector.json',
+      presentation: '/config/m2/presentation.json',
     },
     '/config/m2/prototype.json': {
       schemaVersion: 1,
@@ -76,11 +79,14 @@ function documents(): Record<string, unknown> {
       logicalWidth: 1600,
       logicalHeight: 900,
       materialPlacement: {
-        centerX: 800,
-        centerY: 300,
-        size: 180,
-        offsetPerInstance: { x: 200, y: 0 },
-        rotationDegreesPerInstance: 2,
+        visibleLongEdge: 180,
+        minimumGap: 0,
+        usableRegion: { left: 0, top: 0, right: 1600, bottom: 900 },
+        slots: [
+          { centerX: 800, centerY: 300, rotationDegrees: 0 },
+          { centerX: 1000, centerY: 300, rotationDegrees: 2 },
+          { centerX: 1200, centerY: 300, rotationDegrees: 4 },
+        ],
       },
       availableFireSourceIds: ['basic-fire'],
       initialFireSize: 32,
@@ -110,10 +116,16 @@ function documents(): Record<string, unknown> {
         {
           id: 'basic-fire',
           nameZh: '凡火',
+          descriptionZh: '丹炉常用的基础火种。',
           origin: { x: 800, y: 700 },
           halfAngleDegrees: 70,
           minWidth: 24,
           maxWidth: 280,
+          baseTemperature: 8,
+          maximumTemperature: 100,
+          heatingRatePerSecond: 24,
+          coolingRatePerSecond: 10,
+          temperatureCurve: 'linear',
         },
       ],
     },
@@ -133,6 +145,7 @@ function documents(): Record<string, unknown> {
       deceleration: 1600,
       maxSpeed: 500,
     },
+    '/config/m2/presentation.json': validM5Presentation(),
   }
 }
 
@@ -208,8 +221,9 @@ describe('loadBrowserM2GameplayConfig', () => {
     }
     const renamedFireSources = structuredClone(
       documents()['/config/m2/fire-sources.json'],
-    ) as { fireSources: Array<{ nameZh: string }> }
+    ) as { fireSources: Array<{ nameZh: string; descriptionZh: string }> }
     renamedFireSources.fireSources[0]!.nameZh = '重命名火种'
+    renamedFireSources.fireSources[0]!.descriptionZh = '只改展示说明'
     const rethemedPrototype = structuredClone(
       documents()['/config/m2/prototype.json'],
     ) as { theme: { colors: { accent: string }; radius: number } }
@@ -245,6 +259,10 @@ describe('loadBrowserM2GameplayConfig', () => {
     ['fireSizeWheelStep', '/config/m2/prototype.json'],
     ['materialRestitution', '/config/m2/pearl-types.json'],
     ['materialPlacement', '/config/m2/prototype.json'],
+    ['baseTemperature', '/config/m2/fire-sources.json'],
+    ['maximumTemperature', '/config/m2/fire-sources.json'],
+    ['heatingRatePerSecond', '/config/m2/fire-sources.json'],
+    ['coolingRatePerSecond', '/config/m2/fire-sources.json'],
   ] as const)('%s 变化会改变 fingerprint', async (field, path) => {
     const baseResult = await loadBrowserM2GameplayConfig(options())
     const changed = structuredClone(documents()[path]) as Record<string, unknown>
@@ -252,8 +270,16 @@ describe('loadBrowserM2GameplayConfig', () => {
       changed.fireSizeWheelStep = 8
     } else if (field === 'materialPlacement') {
       ;(changed.materialPlacement as {
-        offsetPerInstance: { x: number }
-      }).offsetPerInstance.x += 1
+        slots: Array<{ centerX: number }>
+      }).slots[0]!.centerX += 1
+    } else if (
+      field === 'baseTemperature' ||
+      field === 'maximumTemperature' ||
+      field === 'heatingRatePerSecond' ||
+      field === 'coolingRatePerSecond'
+    ) {
+      const fireSources = changed.fireSources as Array<Record<typeof field, number>>
+      fireSources[0]![field] -= 1
     } else {
       const pearlTypes = changed.pearlTypes as Array<{ materialRestitution: number }>
       pearlTypes[0]!.materialRestitution = 0.4

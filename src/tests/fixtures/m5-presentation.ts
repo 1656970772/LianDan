@@ -1,0 +1,117 @@
+import type { NormalizedM2PresentationConfig } from '../../config/m2-gameplay-model'
+
+const profile = (
+  kind: 'tone' | 'noise',
+  frequencyHz: number,
+): NormalizedM2PresentationConfig['audio']['profiles']['fireStart'] => ({
+  kind,
+  attackSeconds: 0.01,
+  decaySeconds: 0.1,
+  sustainLevel: 0.25,
+  releaseSeconds: 0.2,
+  frequencyHz,
+  gain: 0.2,
+})
+
+export function validM5Presentation(): NormalizedM2PresentationConfig {
+  return {
+    schemaVersion: 1,
+    temperature: {
+      warmRatio: 0.25,
+      blazingRatio: 0.75,
+    },
+    fire: {
+      afterglowSeconds: 0.75,
+      emergenceSeconds: 0.55,
+      steadyThresholdSeconds: 0.4,
+      geometry: {
+        sourceWidthScale: 0.28,
+        bodyRadiusPixels: 26,
+        trailRadiusScale: 0.86,
+        tipRadiusScale: 0.28,
+        swayPixels: 13,
+        curlPixels: 14,
+        particleCount: 170,
+        bodyDensity: 0.09,
+        trailDensity: 0.16,
+      },
+      core: { color: '#FFF3B0', alpha: 0.96 },
+      body: { color: '#FF9F43', alpha: 0.88 },
+      outer: { color: '#D94C2B', alpha: 0.58 },
+      ember: { color: '#FFCC66', alpha: 0.82 },
+      emberRate: 54,
+    },
+    material: {
+      maskScale: 4,
+      edgeFeatherPixels: 2,
+      heatEdgeWidthPixels: 5,
+      charAlpha: 0.72,
+      debrisRate: 42,
+      debrisLifetimeSeconds: 0.24,
+    },
+    pearls: {
+      medicinalLiquid: { shape: 'droplet', motion: 'swim', surface: 'glossy' },
+      slag: { shape: 'clump', motion: 'tumble', surface: 'rough' },
+      impurity: { shape: 'spike', motion: 'jitter', surface: 'smoky' },
+    },
+    failure: {
+      shatteringStartRatio: 0.24,
+      gatheringStartRatio: 0.5,
+      flyingStartRatio: 0.8,
+      shardsPerSource: 4,
+      maximumParticleCount: 96,
+      scatterRadiusPixels: 52,
+      particleRadiusPixels: 5,
+      resultRadiusPixels: 34,
+      furnaceBottomAnchor: { xRatio: 0.5, yRatio: 0.84 },
+      resultAnchor: { xRatio: 0.5, yRatio: 0.5 },
+    },
+    effects: {
+      shieldDurationSeconds: 0.35,
+      damageDurationSeconds: 0.45,
+      steamDurationSeconds: 0.6,
+      warningOneDurationSeconds: 0.8,
+      warningTwoDurationSeconds: 1.1,
+      failureDurationSeconds: 1.25,
+    },
+    camera: {
+      normalCatchStrength: 0.12,
+      damageStrength: 0.34,
+      fightStrength: 0.24,
+      warningTwoStrength: 0.48,
+      failureStrength: 0.72,
+      durationSeconds: 0.32,
+      maxOffsetPixels: 14,
+    },
+    audio: {
+      initiallyMuted: true,
+      defaultVolume: 0.65,
+      mergeWindowMs: 45,
+      mergeGain: 1.3,
+      maxVoices: 12,
+      profiles: {
+        fireStart: profile('tone', 145),
+        fireLoop: profile('noise', 95),
+        fireStop: profile('noise', 80),
+        pearlCaught: profile('tone', 740),
+        pearlShield: profile('tone', 520),
+        pearlDamaged: profile('noise', 180),
+        interaction: profile('tone', 310),
+        warningOne: profile('tone', 260),
+        warningTwo: profile('tone', 190),
+        failure: profile('noise', 70),
+      },
+    },
+    accessibility: {
+      reducedMotionFailureDurationSeconds: 1,
+      reducedMotionCameraMultiplier: 0,
+    },
+    performance: {
+      particlePoolSize: 320,
+      steamPoolSize: 96,
+      pearlPoolSize: 128,
+      effectPoolInitialCapacity: 640,
+      effectPoolMaximumCapacity: 1024,
+    },
+  }
+}

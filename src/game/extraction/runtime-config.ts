@@ -108,6 +108,7 @@ export function createM2RuntimeConfiguration(
       pearlType.pearlType,
       {
         radiusAtStandardVolume: pearlType.standardRadius,
+        spawnClearance: pearlType.spawnClearance,
         spawnVelocity: { ...pearlType.spawnVelocity },
         gravity: pearlType.gravity,
         driftX: pearlType.drift,
@@ -126,7 +127,16 @@ export function createM2RuntimeConfiguration(
 
   return {
     rules: {
+      fixedDeltaSeconds: 1 / base.parameters.simulation.fixedStepHz,
       availableFireSourceIds: [...prototype.availableFireSourceIds],
+      fireSources: gameplay.fireSources.map((source) => ({
+        id: source.id,
+        baseTemperature: source.baseTemperature,
+        maximumTemperature: source.maximumTemperature,
+        heatingRatePerSecond: source.heatingRatePerSecond,
+        coolingRatePerSecond: source.coolingRatePerSecond,
+        temperatureCurve: source.temperatureCurve,
+      })),
       initialFireSize: prototype.initialFireSize,
       initialFireDirection: { ...prototype.initialFireDirection },
       inventoryBatches,
@@ -142,6 +152,7 @@ export function createM2RuntimeConfiguration(
       fixedDeltaSeconds: 1 / base.parameters.simulation.fixedStepHz,
       dissolutionVolumePerTick: base.parameters.dissolution.volumePerTick,
       exposureProbeDistance: base.parameters.dissolution.exposureProbeDistance,
+      frontLaneWidthCells: base.parameters.dissolution.frontLaneWidthCells,
       naturalLossRatePerMinute: base.parameters.loss.naturalRatePerMinute,
       safeZoneY: fireSource.origin.y,
       fireFlow: {
@@ -163,15 +174,13 @@ export function createM2RuntimeConfiguration(
       },
       materials,
       materialPlacement: {
-        center: {
-          x: prototype.materialPlacement.centerX,
-          y: prototype.materialPlacement.centerY,
-        },
-        width: prototype.materialPlacement.size,
-        height: prototype.materialPlacement.size,
-        offsetPerInstance: { ...prototype.materialPlacement.offsetPerInstance },
-        rotationRadiansPerInstance:
-          (prototype.materialPlacement.rotationDegreesPerInstance * Math.PI) / 180,
+        visibleLongEdge: prototype.materialPlacement.visibleLongEdge,
+        minimumGap: prototype.materialPlacement.minimumGap,
+        usableRegion: { ...prototype.materialPlacement.usableRegion },
+        slots: prototype.materialPlacement.slots.map((slot) => ({
+          center: { x: slot.centerX, y: slot.centerY },
+          rotationRadians: (slot.rotationDegrees * Math.PI) / 180,
+        })),
       },
       fireSource: {
         origin: { ...fireSource.origin },

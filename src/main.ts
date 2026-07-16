@@ -2,6 +2,7 @@ import {
   loadBrowserConfig,
   loadBrowserM1FireFlowFixture,
   loadBrowserM2GameplayConfig,
+  loadBrowserM5VisualPerformanceFixture,
   validateM1RuntimeCompatibility,
   type ConfigIssue,
   type NormalizedM2Config,
@@ -9,6 +10,7 @@ import {
 import {
   createM1Game,
   createM2Game,
+  createM5VisualPerformanceGame,
   GAME_LOGICAL_HEIGHT,
   GAME_LOGICAL_WIDTH,
   M1_OVERLAY_MODES,
@@ -17,6 +19,8 @@ import {
   type M1OverlayMode,
   type M2BrowserApi,
   type M2GameHandle,
+  type M5VisualPerformanceBrowserApi,
+  type M5VisualPerformanceGameHandle,
 } from './game/index.ts'
 import { M1_BEHAVIORS, listM1Scenarios } from './game/m1/scenarios.ts'
 import { buildM2InventoryViews } from './game/extraction/inventory-view.ts'
@@ -61,7 +65,18 @@ function writeM1RuntimeQuery(
   window.history.replaceState(null, '', url)
 }
 
-function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
+function initialM2WorkbenchModel(
+  config: NormalizedM2Config,
+  simulationContentFingerprint: string,
+  presentationContentFingerprint: string,
+): M2WorkbenchModel {
+  const initialFireSource =
+    config.gameplay.fireSources.find((source) =>
+      config.gameplay.prototype.availableFireSourceIds.includes(source.id),
+    ) ?? config.gameplay.fireSources[0]
+  if (initialFireSource === undefined) {
+    throw new Error('可用火源配置不能为空。')
+  }
   const initialServings = Object.fromEntries(
     config.gameplay.prototype.inventoryBatches.map((batch) => [
       batch.batchId,
@@ -75,7 +90,7 @@ function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
     fireSources: config.gameplay.fireSources.map((source) => ({
       id: source.id,
       nameZh: source.nameZh,
-      descriptionZh: '稳定、易控制的基础火种。',
+      descriptionZh: source.descriptionZh,
     })),
     equippedFireSourceId: null,
     fireSize: config.gameplay.prototype.initialFireSize,
@@ -84,12 +99,26 @@ function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
       max: 100,
     },
     isSpraying: false,
+    furnaceTemperature: initialFireSource.baseTemperature,
+    furnaceTemperatureRange: {
+      min: initialFireSource.baseTemperature,
+      max: initialFireSource.maximumTemperature,
+    },
+    furnaceTemperatureThresholds: {
+      warmRatio: config.presentation.temperature.warmRatio,
+      blazingRatio: config.presentation.temperature.blazingRatio,
+    },
+    furnaceTemperatureTrend: 'steady',
     flameThrustEnabled: false,
+    audioVolume: config.presentation.audio.defaultVolume,
+    audioMuted: false,
     canFinish: false,
     lossWarningLevel: 0,
     caughtVolumes: { medicinalLiquid: 0, slag: 0, impurity: 0 },
     normalSlagQuantity: 0,
     failureResult: null,
+    failureInvestedMaterials: [],
+    failurePresentationComplete: false,
     paused: false,
     restartConfirmation: 'closed',
     inventory: buildM2InventoryViews(config, initialServings),
@@ -98,6 +127,18 @@ function initialM2WorkbenchModel(config: NormalizedM2Config): M2WorkbenchModel {
     activePearlCount: 0,
     caughtPearlCount: 0,
     interactionCount: 0,
+    debug: {
+      simulationContentFingerprint,
+      presentationContentFingerprint,
+      flowGeneration: 0,
+      pauseReasons: [],
+      firePresentationState: 'off',
+      fireVisualIntensity: 0,
+      failurePresentationState: 'idle',
+      failurePresentationProgress: 0,
+      audioVoiceCount: 0,
+      effectPoolActive: 0,
+    },
   }
 }
 
@@ -111,7 +152,11 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
   let gameHandle: M2GameHandle | null = null
   const workbench = createM2Workbench({
     root: app,
-    initialModel: initialM2WorkbenchModel(loaded.config),
+    initialModel: initialM2WorkbenchModel(
+      loaded.config,
+      loaded.simulationContentFingerprint,
+      loaded.presentationContentFingerprint,
+    ),
     theme: {
       background: loaded.config.gameplay.prototype.theme.colors.background,
       surface: loaded.config.gameplay.prototype.theme.colors.surface,
@@ -131,6 +176,8 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
       gameHandle?.selectFireSource(fireSourceId),
     onFireSizeChange: (fireSize) => gameHandle?.setFireSize(fireSize),
     onFlameThrustChange: (enabled) => gameHandle?.setFlameThrust(enabled),
+    onAudioVolumeChange: (volume) => gameHandle?.setAudioVolume(volume),
+    onAudioMutedChange: (muted) => gameHandle?.setAudioMuted(muted),
     onPause: () => gameHandle?.pause(),
     onResume: () => gameHandle?.resume(),
     onRequestRestart: () => gameHandle?.requestRestart(),
@@ -141,6 +188,8 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
   })
   workbench.gameHost.dataset.simulationContentFingerprint =
     loaded.simulationContentFingerprint
+  workbench.gameHost.dataset.presentationContentFingerprint =
+    loaded.presentationContentFingerprint
 
   document.body.dataset.appMode = 'm2'
   document.body.dataset.appState = 'game-loading'
@@ -150,6 +199,7 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
     config: loaded.config,
     compositionMaps: loaded.compositionMaps,
     simulationContentFingerprint: loaded.simulationContentFingerprint,
+    presentationContentFingerprint: loaded.presentationContentFingerprint,
     onReady(metadata) {
       workbench.gameHost.dataset.phaserVersion = metadata.phaserVersion
       document.body.dataset.appState = 'ready'
@@ -163,6 +213,10 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
 
   const browserApi: M2BrowserApi = Object.freeze({
     getSnapshot: () => gameHandle!.getSnapshot(),
+    getMaterialTopologyEvidence: () =>
+      gameHandle!.getMaterialTopologyEvidence(),
+    getPearlEvidence: () => gameHandle!.getPearlEvidence(),
+    getPresentationEvidence: () => gameHandle!.getPresentationEvidence(),
     selectFireSource: (fireSourceId: string) =>
       gameHandle!.selectFireSource(fireSourceId),
     preselectMaterial: (inventoryBatchId: string) =>
@@ -171,6 +225,9 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
     addSelectedMaterial: () => gameHandle!.addSelectedMaterial(),
     setFireSize: (size: number) => gameHandle!.setFireSize(size),
     setFlameThrust: (enabled: boolean) => gameHandle!.setFlameThrust(enabled),
+    setAudioVolume: (volume: number) => gameHandle!.setAudioVolume(volume),
+    setAudioMuted: (muted: boolean) => gameHandle!.setAudioMuted(muted),
+    unlockAudio: () => gameHandle!.unlockAudio(),
     requestFinish: () => gameHandle!.requestFinish(),
     pause: () => gameHandle!.pause(),
     resume: () => gameHandle!.resume(),
@@ -188,6 +245,82 @@ async function bootstrapM2(app: HTMLElement): Promise<void> {
     window.removeEventListener('pagehide', destroy)
     if (window.__LIANDAN_M2__ === browserApi) delete window.__LIANDAN_M2__
     workbench.destroy()
+    gameHandle?.destroy()
+    gameHandle = null
+  }
+  window.addEventListener('pagehide', destroy)
+}
+
+async function bootstrapM5VisualPerformance(app: HTMLElement): Promise<void> {
+  const [loadedConfig, loadedFixture] = await Promise.all([
+    loadBrowserM2GameplayConfig(),
+    loadBrowserM5VisualPerformanceFixture(),
+  ])
+  if (!loadedConfig.ok || !loadedFixture.ok) {
+    renderConfigError(app, [
+      ...(loadedConfig.ok ? [] : loadedConfig.issues),
+      ...(loadedFixture.ok ? [] : loadedFixture.issues),
+    ])
+    return
+  }
+  const requestedScenarioId =
+    new URLSearchParams(window.location.search).get('scenario') ?? ''
+  const scenario = loadedFixture.fixture.scenarios.find(
+    (candidate) => candidate.id === requestedScenarioId,
+  )
+  if (scenario === undefined) {
+    renderConfigError(app, [
+      {
+        code: 'CONFIG_REFERENCE_NOT_FOUND',
+        filePath: '/config/performance/m5-visual.json',
+        fieldPath: '/scenarios',
+        messageZh: `找不到 M5 正式表现性能场景：${requestedScenarioId || '(空)'}`,
+      },
+    ])
+    return
+  }
+
+  document.title = `M5 表现基准 - ${scenario.id}`
+  document.body.dataset.appMode = 'm5-performance'
+  document.body.dataset.appState = 'game-loading'
+  app.replaceChildren()
+  const host = document.createElement('main')
+  host.className = 'm5-performance-host'
+  host.setAttribute('aria-label', `M5 表现性能场景 ${scenario.id}`)
+  host.style.width = `${loadedFixture.fixture.protocol.viewportWidth}px`
+  host.style.height = `${loadedFixture.fixture.protocol.viewportHeight}px`
+  app.append(host)
+
+  let gameHandle: M5VisualPerformanceGameHandle | null = null
+  gameHandle = createM5VisualPerformanceGame({
+    parent: host,
+    config: loadedConfig.config,
+    fixture: loadedFixture.fixture,
+    scenario,
+    simulationContentFingerprint:
+      loadedConfig.simulationContentFingerprint,
+    presentationContentFingerprint:
+      loadedConfig.presentationContentFingerprint,
+    onReady: () => {
+      document.body.dataset.appState = 'ready'
+    },
+  })
+  const browserApi: M5VisualPerformanceBrowserApi = Object.freeze({
+    snapshot: () => gameHandle!.snapshot(),
+    startSample: (durationMilliseconds: number) =>
+      gameHandle!.startSample(durationMilliseconds),
+    enableAudioAudit: () => gameHandle!.enableAudioAudit(),
+  })
+  window.__LIANDAN_M5_PERFORMANCE__ = browserApi
+
+  let destroyed = false
+  const destroy = (): void => {
+    if (destroyed) return
+    destroyed = true
+    window.removeEventListener('pagehide', destroy)
+    if (window.__LIANDAN_M5_PERFORMANCE__ === browserApi) {
+      delete window.__LIANDAN_M5_PERFORMANCE__
+    }
     gameHandle?.destroy()
     gameHandle = null
   }
@@ -307,6 +440,9 @@ document.body.dataset.appState = 'loading'
 const bootstrap = async (): Promise<void> => {
   const mode = new URLSearchParams(window.location.search).get('mode')
   if (mode === 'technical') await bootstrapM1(app)
+  else if (mode === 'm5-performance') {
+    await bootstrapM5VisualPerformance(app)
+  }
   else await bootstrapM2(app)
 }
 

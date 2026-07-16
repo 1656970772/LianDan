@@ -213,6 +213,7 @@ export type ApplicationReadModel = Readonly<{
   fireSize: number
   isSpraying: boolean
   effectiveFireSize: number
+  furnaceTemperature: number
   canFinish: boolean
   lossWarningLevel: LossWarningLevel
   failureResult: ExtractionFailureResult | null

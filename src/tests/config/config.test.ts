@@ -68,6 +68,7 @@ describe('validateAndNormalizeConfigSet', () => {
       dissolution: {
         volumePerTick: 0.18,
         exposureProbeDistance: 18,
+        frontLaneWidthCells: 1,
       },
       loss: {
         naturalRatePerMinute: 0.01,
@@ -131,6 +132,7 @@ describe('validateAndNormalizeConfigSet', () => {
     flowFieldProperties.fullObstacleThreshold!.default = 0.9
     dissolutionProperties.volumePerTick!.default = 0.25
     dissolutionProperties.exposureProbeDistance!.default = 24
+    dissolutionProperties.frontLaneWidthCells!.default = 2
     materialProperties.targetPearlCount!.default = 450
 
     const result = validateAndNormalizeConfigSet(validRawConfigSet(), schemas)
@@ -155,6 +157,7 @@ describe('validateAndNormalizeConfigSet', () => {
           dissolution: {
             volumePerTick: 0.25,
             exposureProbeDistance: 24,
+            frontLaneWidthCells: 2,
           },
         },
         materials: [{ targetPearlCount: 450 }],
@@ -186,6 +189,7 @@ describe('validateAndNormalizeConfigSet', () => {
       dissolution: {
         volumePerTick: 0.3,
         exposureProbeDistance: 12,
+        frontLaneWidthCells: 2,
       },
       loss: {
         naturalRatePerMinute: 0.02,
@@ -220,6 +224,7 @@ describe('validateAndNormalizeConfigSet', () => {
       dissolution: {
         volumePerTick: 0.3,
         exposureProbeDistance: 12,
+        frontLaneWidthCells: 2,
       },
       loss: {
         naturalRatePerMinute: 0.02,
@@ -311,6 +316,9 @@ describe('validateAndNormalizeConfigSet', () => {
     ['flowField', 'fullObstacleThreshold', 1.01],
     ['dissolution', 'volumePerTick', 0],
     ['dissolution', 'exposureProbeDistance', -0.01],
+    ['dissolution', 'frontLaneWidthCells', 0],
+    ['dissolution', 'frontLaneWidthCells', 1.5],
+    ['dissolution', 'frontLaneWidthCells', 65],
   ] as const)(
     '拒绝越界 %s.%s=%s',
     (group, field, value) => {

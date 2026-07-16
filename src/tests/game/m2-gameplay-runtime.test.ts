@@ -5,7 +5,18 @@ import type { PrototypeRules } from '../../domain/index.ts'
 import type { ExtractionSimulationConfig } from '../../simulation/index.ts'
 
 const rules: PrototypeRules = {
+  fixedDeltaSeconds: 1 / 30,
   availableFireSourceIds: ['fire.basic'],
+  fireSources: [
+    {
+      id: 'fire.basic',
+      baseTemperature: 8,
+      maximumTemperature: 100,
+      heatingRatePerSecond: 24,
+      coolingRatePerSecond: 10,
+      temperatureCurve: 'linear',
+    },
+  ],
   initialFireSize: 30,
   initialFireDirection: { x: 0, y: -1 },
   inventoryBatches: [
@@ -33,6 +44,7 @@ function simulationConfig(): ExtractionSimulationConfig {
     fixedDeltaSeconds: 1 / 30,
     dissolutionVolumePerTick: 1,
     exposureProbeDistance: 2,
+    frontLaneWidthCells: 1,
     naturalLossRatePerMinute: 0,
     safeZoneY: 112,
     fireFlow: {
@@ -60,11 +72,10 @@ function simulationConfig(): ExtractionSimulationConfig {
       },
     ],
     materialPlacement: {
-      center: { x: 64, y: 48 },
-      width: 8,
-      height: 8,
-      offsetPerInstance: { x: 0, y: 0 },
-      rotationRadiansPerInstance: 0,
+      visibleLongEdge: 1,
+      minimumGap: 0,
+      usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+      slots: [{ center: { x: 64, y: 48 }, rotationRadians: 0 }],
     },
     fireSource: {
       origin: { x: 64, y: 112 },
@@ -75,6 +86,7 @@ function simulationConfig(): ExtractionSimulationConfig {
     pearlPhysics: {
       medicinalLiquid: {
         radiusAtStandardVolume: 3,
+        spawnClearance: 0,
         spawnVelocity: { minX: 0, maxX: 0, minY: 40, maxY: 40 },
         gravity: 0,
         driftX: 0,
@@ -88,6 +100,7 @@ function simulationConfig(): ExtractionSimulationConfig {
       },
       slag: {
         radiusAtStandardVolume: 3,
+        spawnClearance: 0,
         spawnVelocity: { minX: 0, maxX: 0, minY: 40, maxY: 40 },
         gravity: 0,
         driftX: 0,
@@ -101,6 +114,7 @@ function simulationConfig(): ExtractionSimulationConfig {
       },
       impurity: {
         radiusAtStandardVolume: 3,
+        spawnClearance: 0,
         spawnVelocity: { minX: 0, maxX: 0, minY: 40, maxY: 40 },
         gravity: 0,
         driftX: 0,
@@ -128,6 +142,19 @@ function simulationConfig(): ExtractionSimulationConfig {
 }
 
 describe('M2 玩法运行时适配器', () => {
+  it('frame 返回当帧稳定 snapshot，调用方无需再生成一份', () => {
+    const runtime = new M2GameplayRuntime({
+      rules,
+      simulationConfig: simulationConfig(),
+      tickRateHz: 30,
+      maxCatchUpSteps: 5,
+    })
+
+    const frameSnapshot = runtime.frame(0)
+
+    expect(frameSnapshot).toBe(runtime.snapshot())
+  })
+
   it('把规则命令送到下一 tick，并只向 Phaser 排出一次已提交事件', () => {
     const runtime = new M2GameplayRuntime({
       rules,
@@ -152,7 +179,11 @@ describe('M2 玩法运行时适配器', () => {
         materialInstanceId: 'material-instance-1',
       }),
     ])
-    expect(runtime.drainDomainEvents()).toEqual([])
+    const firstEmptyDrain = runtime.drainDomainEvents()
+    const secondEmptyDrain = runtime.drainDomainEvents()
+    expect(firstEmptyDrain).toEqual([])
+    expect(secondEmptyDrain).toBe(firstEmptyDrain)
+    expect(Object.isFrozen(secondEmptyDrain)).toBe(true)
     expect(runtime.getSessionArchives()).toEqual([])
     expect('getApplication' in runtime).toBe(false)
   })

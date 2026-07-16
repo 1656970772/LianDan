@@ -6,6 +6,9 @@ import type {
 } from '../config/index.ts'
 import type { LifecycleSnapshot } from '../application/index.ts'
 import type { M2Snapshot } from './extraction/contracts.ts'
+import type { M5EffectKind } from './extraction/m5-feedback-mapper.ts'
+import type { M5MaterialTopologyEvidence } from './extraction/m5-material-topology-evidence.ts'
+import type { M5PearlEvidence } from './extraction/m5-pearl-evidence.ts'
 import {
   M2ExtractionScene,
   type M2ExtractionSceneMetadata,
@@ -18,6 +21,7 @@ export type CreateM2GameOptions = Readonly<{
   config: NormalizedM2Config
   compositionMaps: readonly DecodedCompositionMap[]
   simulationContentFingerprint: string
+  presentationContentFingerprint: string
   onReady?: (metadata: M2ExtractionSceneMetadata) => void
   onSnapshot?: (snapshot: M2Snapshot) => void
 }>
@@ -26,12 +30,23 @@ export interface M2GameHandle {
   readonly game: Phaser.Game
   readonly metadata: M2ExtractionSceneMetadata
   getSnapshot(): M2Snapshot
+  getMaterialTopologyEvidence(): readonly M5MaterialTopologyEvidence[]
+  getPearlEvidence(): readonly M5PearlEvidence[]
+  getPresentationEvidence(): Readonly<{
+    activeEffectKinds: readonly M5EffectKind[]
+    collectorCenter: Readonly<{ x: number; y: number }>
+    collectorVelocityX: number
+    simulationTick: number
+  }>
   selectFireSource(fireSourceId: string): void
   preselectMaterial(inventoryBatchId: string): void
   cancelMaterialSelection(): void
   addSelectedMaterial(): void
   setFireSize(size: number): void
   setFlameThrust(enabled: boolean): void
+  setAudioVolume(volume: number): void
+  setAudioMuted(muted: boolean): void
+  unlockAudio(): void
   requestFinish(): void
   pause(): void
   resume(): void
@@ -113,15 +128,19 @@ export function createM2Game(options: CreateM2GameOptions): M2GameHandle {
       )
     },
     onFireDirection: (direction) => {
+      scene.unlockAudio()
       scene.captureRuleCommand({ type: 'SetFireDirection', payload: direction })
     },
     onSpraying: (spraying) => {
+      scene.unlockAudio()
       scene.captureRuleCommand({ type: 'SetSpraying', payload: { spraying } })
     },
     onFireSize: (size) => {
+      scene.unlockAudio()
       scene.captureRuleCommand({ type: 'SetFireSize', payload: { size } })
     },
     onContainerAxis: (axis) => {
+      scene.unlockAudio()
       scene.captureRuleCommand({ type: 'SetContainerAxis', payload: { axis } })
     },
     onControl: (control) => scene.captureControl(control),
@@ -133,45 +152,85 @@ export function createM2Game(options: CreateM2GameOptions): M2GameHandle {
     game,
     metadata,
     getSnapshot: () => scene.getSnapshot(),
-    selectFireSource: (fireSourceId) =>
+    getMaterialTopologyEvidence: () => scene.getMaterialTopologyEvidence(),
+    getPearlEvidence: () => scene.getPearlEvidence(),
+    getPresentationEvidence: () => scene.getPresentationEvidence(),
+    selectFireSource: (fireSourceId) => {
+      scene.unlockAudio()
       scene.captureRuleCommand({
         type: 'SelectFireSource',
         payload: { fireSourceId },
-      }),
-    preselectMaterial: (inventoryBatchId) =>
+      })
+    },
+    preselectMaterial: (inventoryBatchId) => {
+      scene.unlockAudio()
       scene.captureRuleCommand({
         type: 'PreselectMaterial',
         payload: { inventoryBatchId },
-      }),
-    cancelMaterialSelection: () =>
+      })
+    },
+    cancelMaterialSelection: () => {
+      scene.unlockAudio()
       scene.captureRuleCommand({
         type: 'CancelMaterialSelection',
         payload: {},
-      }),
-    addSelectedMaterial: () =>
-      scene.captureRuleCommand({ type: 'AddSelectedMaterial', payload: {} }),
-    setFireSize: (size) =>
-      scene.captureRuleCommand({ type: 'SetFireSize', payload: { size } }),
-    setFlameThrust: (enabled) =>
-      scene.captureRuleCommand({ type: 'SetFlameThrust', payload: { enabled } }),
-    requestFinish: () =>
-      scene.captureRuleCommand({ type: 'RequestFinish', payload: {} }),
-    pause: () => scene.captureControl({ type: 'Pause', payload: {} }),
-    resume: () => scene.captureControl({ type: 'Resume', payload: {} }),
-    requestRestart: () =>
-      scene.captureControl({ type: 'RequestRestart', payload: {} }),
-    cancelRestart: () =>
-      scene.captureControl({ type: 'CancelRestart', payload: {} }),
-    confirmRestart: () =>
+      })
+    },
+    addSelectedMaterial: () => {
+      scene.unlockAudio()
+      scene.captureRuleCommand({ type: 'AddSelectedMaterial', payload: {} })
+    },
+    setFireSize: (size) => {
+      scene.unlockAudio()
+      scene.captureRuleCommand({ type: 'SetFireSize', payload: { size } })
+    },
+    setFlameThrust: (enabled) => {
+      scene.unlockAudio()
+      scene.captureRuleCommand({ type: 'SetFlameThrust', payload: { enabled } })
+    },
+    setAudioVolume: (volume) => {
+      scene.unlockAudio()
+      scene.setAudioVolume(volume)
+    },
+    setAudioMuted: (muted) => {
+      scene.unlockAudio()
+      scene.setAudioMuted(muted)
+    },
+    unlockAudio: () => scene.unlockAudio(),
+    requestFinish: () => {
+      scene.unlockAudio()
+      scene.captureRuleCommand({ type: 'RequestFinish', payload: {} })
+    },
+    pause: () => {
+      scene.unlockAudio()
+      scene.captureControl({ type: 'Pause', payload: {} })
+    },
+    resume: () => {
+      scene.unlockAudio()
+      scene.captureControl({ type: 'Resume', payload: {} })
+    },
+    requestRestart: () => {
+      scene.unlockAudio()
+      scene.captureControl({ type: 'RequestRestart', payload: {} })
+    },
+    cancelRestart: () => {
+      scene.unlockAudio()
+      scene.captureControl({ type: 'CancelRestart', payload: {} })
+    },
+    confirmRestart: () => {
+      scene.unlockAudio()
       scene.captureControl({
         type: 'ConfirmRestart',
         payload: { lifecycleSnapshot: lifecycleSnapshot(document) },
-      }),
-    again: () =>
+      })
+    },
+    again: () => {
+      scene.unlockAudio()
       scene.captureControl({
         type: 'Again',
         payload: { lifecycleSnapshot: lifecycleSnapshot(document) },
-      }),
+      })
+    },
     destroy: () => {
       if (destroyed) return
       destroyed = true

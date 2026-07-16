@@ -1,0 +1,568 @@
+{
+  "schemaVersion": 1,
+  "protocol": {
+    "productionMode": "m2",
+    "headed": true,
+    "host": "127.0.0.1",
+    "defaultPort": 4186,
+    "deterministicSeed": 20260715,
+    "galleryScenarioId": "visual-normal",
+    "screenshotMode": "full-page",
+    "browserLaunchArgs": [
+      "--force-device-scale-factor=1",
+      "--mute-audio"
+    ],
+    "clock": {
+      "pauseLeadMilliseconds": 16,
+      "pauseMaximumAttempts": 3,
+      "maximumCaptureMilliseconds": 2000,
+      "resumeReserveMilliseconds": 500,
+      "sequenceStepMilliseconds": 8
+    },
+    "timeouts": {
+      "buildMilliseconds": 120000,
+      "previewReadyMilliseconds": 20000,
+      "browserOperationMilliseconds": 30000,
+      "failureTriggerMilliseconds": 25000,
+      "failurePhaseMilliseconds": 6000,
+      "cleanupMilliseconds": 10000,
+      "lateCleanupDrainMilliseconds": 10000
+    }
+  },
+  "layout": {
+    "browsers": [
+      {
+        "id": "stable-chrome",
+        "channel": "chrome"
+      }
+    ],
+    "viewports": [
+      {
+        "width": 2560,
+        "height": 1440
+      },
+      {
+        "width": 1920,
+        "height": 1080
+      },
+      {
+        "width": 1366,
+        "height": 768
+      },
+      {
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "width": 950,
+        "height": 700
+      },
+      {
+        "width": 900,
+        "height": 700
+      }
+    ],
+    "highDprViewport": {
+      "width": 1920,
+      "height": 1080,
+      "deviceScaleFactor": 2
+    },
+    "narrowViewportMaximumWidth": 950
+  },
+  "fire": {
+    "browserId": "stable-chrome",
+    "viewport": {
+      "width": 1920,
+      "height": 1080,
+      "deviceScaleFactor": 1
+    },
+    "fireSourceId": "basic-fire",
+    "sizes": [
+      20,
+      60,
+      100
+    ],
+    "directions": [
+      {
+        "id": "center",
+        "logicalTarget": {
+          "x": 600,
+          "y": 285
+        }
+      },
+      {
+        "id": "left",
+        "logicalTarget": {
+          "x": 455,
+          "y": 315
+        }
+      },
+      {
+        "id": "right",
+        "logicalTarget": {
+          "x": 745,
+          "y": 315
+        }
+      }
+    ],
+    "phaseTrace": {
+      "size": 60,
+      "directionId": "center"
+    },
+    "stableWarmupMilliseconds": 650,
+    "maximumSampleLatenessMilliseconds": 160,
+    "phases": [
+      {
+        "id": "startup",
+        "sampleOffsetsMilliseconds": [
+          0,
+          80,
+          160,
+          240
+        ]
+      },
+      {
+        "id": "steady",
+        "sampleOffsetsMilliseconds": [
+          0,
+          120,
+          240
+        ]
+      },
+      {
+        "id": "release",
+        "sampleOffsetsMilliseconds": [
+          0,
+          80,
+          160,
+          240,
+          320
+        ]
+      }
+    ],
+    "contactSheet": {
+      "columns": 3,
+      "gapPixels": 8,
+      "backgroundColor": "#12100E"
+    }
+  },
+  "coverage": {
+    "viewport": {
+      "width": 1600,
+      "height": 900,
+      "deviceScaleFactor": 1
+    },
+    "cases": [
+      {
+        "id": "material-center-hole",
+        "automation": "m2-material-topology",
+        "fireSourceId": "basic-fire",
+        "materialBatchId": "red_whisker_ginseng_fresh_wild_10",
+        "materialDefinitionId": "red_whisker_ginseng",
+        "fireSize": 20,
+        "flameThrust": false,
+        "logicalTarget": { "x": 711, "y": 525 },
+        "sourceEdge": "bottom",
+        "epsilon": 0.000001,
+        "pollIntervalMilliseconds": 100,
+        "maximumWaitMilliseconds": 60000,
+        "stopCondition": {
+          "mode": "topology-classification",
+          "classification": "deep-narrow",
+          "minimumDissolvedVolumeRatio": 0.12,
+          "maximumDissolvedVolumeRatio": 0.15,
+          "minimumRemainingRatio": 0.8
+        },
+        "shapeThresholds": {
+          "deepPenetrationMinimum": 0.35,
+          "narrowLateralCoverageMaximum": 0.45,
+          "shallowPenetrationMaximum": 0.28,
+          "wideLateralCoverageMinimum": 0.45,
+          "targetLateralRatio": 0.5,
+          "targetCorridorHalfWidthRatio": 0.25,
+          "maximumCenterOffsetRatio": 0.2,
+          "minimumThroughDepthSpanRatio": 0.5
+        },
+        "partialFront": {
+          "lateralBinCount": 20,
+          "minimumCellErosionRatio": 0.1,
+          "minimumActiveLaneErosionRatio": 0.2,
+          "lateralCoverageQuantile": 0.8,
+          "minimumMeaningfulComponentCellCount": 4
+        },
+        "expectedTopology": {
+          "classification": "deep-narrow",
+          "minimumDissolvedVolumeRatio": 0.12,
+          "maximumDissolvedVolumeRatio": 0.15,
+          "minimumRemainingRatio": 0.8,
+          "maximumCollectorCenterOffset": 1,
+          "minimumPenetrationRatio": 0.35,
+          "maximumPenetrationRatio": 1,
+          "minimumLateralCoverageRatio": 0,
+          "maximumLateralCoverageRatio": 0.45,
+          "throughConnected": false
+        },
+        "requiredStates": [
+          "material-mask-center-hole"
+        ]
+      },
+      {
+        "id": "material-wide-strip",
+        "automation": "m2-material-topology",
+        "fireSourceId": "basic-fire",
+        "materialBatchId": "red_whisker_ginseng_fresh_wild_10",
+        "materialDefinitionId": "red_whisker_ginseng",
+        "fireSize": 100,
+        "flameThrust": false,
+        "logicalTarget": { "x": 711, "y": 525 },
+        "sourceEdge": "bottom",
+        "epsilon": 0.000001,
+        "pollIntervalMilliseconds": 100,
+        "maximumWaitMilliseconds": 60000,
+        "stopCondition": {
+          "mode": "topology-classification",
+          "classification": "shallow-wide",
+          "minimumDissolvedVolumeRatio": 0.12,
+          "maximumDissolvedVolumeRatio": 0.15,
+          "minimumRemainingRatio": 0.8
+        },
+        "shapeThresholds": {
+          "deepPenetrationMinimum": 0.35,
+          "narrowLateralCoverageMaximum": 0.45,
+          "shallowPenetrationMaximum": 0.28,
+          "wideLateralCoverageMinimum": 0.45,
+          "targetLateralRatio": 0.5,
+          "targetCorridorHalfWidthRatio": 0.25,
+          "maximumCenterOffsetRatio": 0.2,
+          "minimumThroughDepthSpanRatio": 0.5
+        },
+        "partialFront": {
+          "lateralBinCount": 20,
+          "minimumCellErosionRatio": 0.1,
+          "minimumActiveLaneErosionRatio": 0.2,
+          "lateralCoverageQuantile": 0.8,
+          "minimumMeaningfulComponentCellCount": 4
+        },
+        "expectedTopology": {
+          "classification": "shallow-wide",
+          "minimumDissolvedVolumeRatio": 0.12,
+          "maximumDissolvedVolumeRatio": 0.15,
+          "minimumRemainingRatio": 0.8,
+          "maximumCollectorCenterOffset": 1,
+          "minimumPenetrationRatio": 0,
+          "maximumPenetrationRatio": 0.28,
+          "minimumLateralCoverageRatio": 0.45,
+          "maximumLateralCoverageRatio": 1,
+          "throughConnected": false
+        },
+        "requiredStates": [
+          "material-mask-wide-strip"
+        ]
+      },
+      {
+        "id": "material-burn-through",
+        "automation": "m2-material-topology",
+        "fireSourceId": "basic-fire",
+        "materialBatchId": "red_whisker_ginseng_fresh_wild_10",
+        "materialDefinitionId": "red_whisker_ginseng",
+        "fireSize": 20,
+        "flameThrust": false,
+        "logicalTarget": { "x": 711, "y": 525 },
+        "sourceEdge": "bottom",
+        "epsilon": 0.000001,
+        "pollIntervalMilliseconds": 100,
+        "maximumWaitMilliseconds": 60000,
+        "stopCondition": {
+          "mode": "through-connected"
+        },
+        "shapeThresholds": {
+          "deepPenetrationMinimum": 0.35,
+          "narrowLateralCoverageMaximum": 0.45,
+          "shallowPenetrationMaximum": 0.28,
+          "wideLateralCoverageMinimum": 0.45,
+          "targetLateralRatio": 0.5,
+          "targetCorridorHalfWidthRatio": 0.25,
+          "maximumCenterOffsetRatio": 0.2,
+          "minimumThroughDepthSpanRatio": 0.5
+        },
+        "partialFront": {
+          "lateralBinCount": 20,
+          "minimumCellErosionRatio": 0.1,
+          "minimumActiveLaneErosionRatio": 0.2,
+          "lateralCoverageQuantile": 0.8,
+          "minimumMeaningfulComponentCellCount": 4
+        },
+        "expectedTopology": {
+          "classification": "through-not-empty",
+          "minimumDissolvedVolumeRatio": 0,
+          "maximumDissolvedVolumeRatio": 0.95,
+          "minimumRemainingRatio": 0.05,
+          "maximumCollectorCenterOffset": 1,
+          "minimumPenetrationRatio": 1,
+          "maximumPenetrationRatio": 1,
+          "minimumLateralCoverageRatio": 0,
+          "maximumLateralCoverageRatio": 1,
+          "throughConnected": true
+        },
+        "requiredStates": [
+          "material-mask-burn-through"
+        ]
+      },
+      {
+        "id": "pearl-effects-gallery",
+        "automation": "gallery",
+        "requiredStates": [
+          "fire",
+          "medicinalLiquid",
+          "slag",
+          "impurity",
+          "shield",
+          "damage",
+          "steam",
+          "fight",
+          "localLight"
+        ]
+      },
+      {
+        "id": "max-fire-light-thrust-off",
+        "automation": "m2-thrust-off",
+        "requiredStates": [
+          "maximum-fire",
+          "localLight",
+          "thrust-off"
+        ]
+      },
+      {
+        "id": "max-fire-light-thrust-on",
+        "automation": "m2-thrust-on",
+        "requiredStates": [
+          "maximum-fire",
+          "localLight",
+          "thrust-on"
+        ]
+      },
+      {
+        "id": "loss-warning-one",
+        "automation": "m2-loss-warning",
+        "warningLevel": 1,
+        "expectedEffect": "warningOne",
+        "expectedMessageZh": "药气正在加速流失。",
+        "requiredStates": ["warningOne"]
+      },
+      {
+        "id": "loss-warning-two",
+        "automation": "m2-loss-warning",
+        "warningLevel": 2,
+        "expectedEffect": "warningTwo",
+        "expectedMessageZh": "药性濒临溃散，尽快收束火势。",
+        "requiredStates": ["warningTwo"]
+      },
+      {
+        "id": "material-pair-non-overlap",
+        "automation": "m2-material-pair-non-overlap",
+        "materialBatchIds": [
+          "red_whisker_ginseng_fresh_wild_10",
+          "azure_dew_leaf_fresh_cultivated_3"
+        ],
+        "materialDefinitionIds": [
+          "red_whisker_ginseng",
+          "azure_dew_leaf"
+        ],
+        "epsilon": 0.000001,
+        "settleMilliseconds": 100,
+        "requiredStates": [
+          "material-pair-non-overlap"
+        ]
+      }
+    ],
+    "materialAlignment": {
+      "leftKey": "a",
+      "rightKey": "d",
+      "maximumCenterOffset": 1,
+      "deadlineMilliseconds": 10000,
+      "pollIntervalMilliseconds": 20,
+      "maximumCorrectionHoldMilliseconds": 500,
+      "settlePaddingMilliseconds": 100,
+      "feedbackActivationDirectionChanges": 2,
+      "feedbackPulseTicks": 1,
+      "feedbackVelocityTolerance": 0
+    },
+    "warningFlow": {
+      "fireSourceId": "basic-fire",
+      "fireSize": 100,
+      "materialBatchId": "red_whisker_ginseng_fresh_wild_10",
+      "materialDefinitionId": "red_whisker_ginseng",
+      "flameThrust": false,
+      "logicalTarget": { "x": 711, "y": 525 },
+      "collectorMoveKey": "d",
+      "collectorMoveMilliseconds": 2500,
+      "collectorSettleMilliseconds": 1000,
+      "stopSprayingAtWarningLevel": 2,
+      "maximumStoppedCaptureTickDrift": 4,
+      "maximumWaitMilliseconds": 60000
+    }
+  },
+  "accessibility": {
+    "browserId": "stable-chrome",
+    "viewport": {
+      "width": 1600,
+      "height": 900,
+      "deviceScaleFactor": 1
+    },
+    "galleryRequiredStates": [
+      "fire",
+      "medicinalLiquid",
+      "slag",
+      "impurity",
+      "shield",
+      "damage",
+      "steam"
+    ],
+    "captureStates": ["gallery", "warning-one", "warning-two"],
+    "modes": [
+      {
+        "id": "grayscale",
+        "visionMode": "grayscale",
+        "reducedMotion": false,
+        "colorMatrix": [
+          0.2126,
+          0.7152,
+          0.0722,
+          0,
+          0,
+          0.2126,
+          0.7152,
+          0.0722,
+          0,
+          0,
+          0.2126,
+          0.7152,
+          0.0722,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "id": "protanopia",
+        "visionMode": "protanopia",
+        "reducedMotion": false,
+        "colorMatrix": [
+          0.56667,
+          0.43333,
+          0,
+          0,
+          0,
+          0.55833,
+          0.44167,
+          0,
+          0,
+          0,
+          0,
+          0.24167,
+          0.75833,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "id": "deuteranopia",
+        "visionMode": "deuteranopia",
+        "reducedMotion": false,
+        "colorMatrix": [
+          0.625,
+          0.375,
+          0,
+          0,
+          0,
+          0.7,
+          0.3,
+          0,
+          0,
+          0,
+          0,
+          0.3,
+          0.7,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "id": "reduced-motion",
+        "visionMode": "normal",
+        "reducedMotion": true,
+        "colorMatrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "failure": {
+    "browserId": "stable-chrome",
+    "viewport": {
+      "width": 1600,
+      "height": 900,
+      "deviceScaleFactor": 1
+    },
+    "fireSourceId": "basic-fire",
+    "fireSize": 100,
+    "materialBatchId": "red_whisker_ginseng_fresh_wild_10",
+    "materialDefinitionId": "red_whisker_ginseng",
+    "interceptedTargetPearlCount": 24,
+    "collectorMoveKey": "d",
+    "collectorMoveMilliseconds": 2500,
+    "collectorSettleMilliseconds": 1000,
+    "screenshotMode": "viewport",
+    "phases": [
+      "trigger",
+      "charring",
+      "shattering",
+      "gathering",
+      "flying",
+      "result"
+    ],
+    "motionModes": [
+      {
+        "id": "normal",
+        "reducedMotion": false
+      },
+      {
+        "id": "reduced",
+        "reducedMotion": true
+      }
+    ]
+  }
+}

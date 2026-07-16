@@ -27,7 +27,11 @@ function normalizedConfig(flowField: object = FLOW_RULES): NormalizedConfig {
       slagUnitVolume: 100,
       simulation: { fixedStepHz: 30, maxCatchUpSteps: 5 },
       flowField,
-      dissolution: { volumePerTick: 0.18, exposureProbeDistance: 18 },
+      dissolution: {
+        volumePerTick: 0.18,
+        exposureProbeDistance: 18,
+        frontLaneWidthCells: 1,
+      },
       loss: {
         naturalRatePerMinute: 0.01,
         warningThresholds: [0.5, 0.65],
@@ -85,6 +89,7 @@ describe('createSimulationFingerprintInput', () => {
       dissolution: {
         volumePerTick: 0.18,
         exposureProbeDistance: 18,
+        frontLaneWidthCells: 1,
       },
       loss: {
         naturalRatePerMinute: 0.01,
@@ -120,7 +125,11 @@ describe('createSimulationFingerprintInput', () => {
     },
   )
 
-  it.each(['volumePerTick', 'exposureProbeDistance'] as const)(
+  it.each([
+    'volumePerTick',
+    'exposureProbeDistance',
+    'frontLaneWidthCells',
+  ] as const)(
     '任一 dissolution 规则 %s 变化都会改变 fingerprint',
     async (field) => {
       const base = normalizedConfig()

@@ -15,6 +15,8 @@ import {
   type ExtractionSimulationReadView,
 } from '../../simulation/index.ts'
 
+const EMPTY_DOMAIN_EVENTS: readonly DomainEvent[] = Object.freeze([])
+
 export type M2GameplayRuntimeSnapshot =
   ExtractionRuntimeSnapshot<ExtractionSimulationReadView>
 
@@ -33,6 +35,7 @@ export type M2GameplayRuntimeOptions = Readonly<{
 export class M2GameplayRuntime {
   readonly #runtime: ExtractionRuntime<ExtractionSimulationReadView>
   #pendingDomainEvents: DomainEvent[] = []
+  #sessionId: string
 
   constructor(options: M2GameplayRuntimeOptions) {
     const simulation = new ExtractionSimulation(options.simulationConfig)
@@ -45,14 +48,17 @@ export class M2GameplayRuntime {
         this.#pendingDomainEvents.push(...snapshot.events)
       },
     })
+    this.#sessionId = this.#runtime.snapshot().application.sessionId
   }
 
-  frame(frameTimeMilliseconds: number): void {
-    const previousSessionId = this.#runtime.snapshot().application.sessionId
+  frame(frameTimeMilliseconds: number): M2GameplayRuntimeSnapshot {
     this.#runtime.frame(frameTimeMilliseconds)
-    if (this.#runtime.snapshot().application.sessionId !== previousSessionId) {
+    const snapshot = this.#runtime.snapshot()
+    if (snapshot.application.sessionId !== this.#sessionId) {
       this.#pendingDomainEvents = []
+      this.#sessionId = snapshot.application.sessionId
     }
+    return snapshot
   }
 
   captureRuleCommand(command: RuleCommand): void {
@@ -71,9 +77,10 @@ export class M2GameplayRuntime {
   }
 
   drainDomainEvents(): readonly DomainEvent[] {
+    if (this.#pendingDomainEvents.length === 0) return EMPTY_DOMAIN_EVENTS
     const events = this.#pendingDomainEvents
     this.#pendingDomainEvents = []
-    return events
+    return Object.freeze(events)
   }
 
   getSessionArchives(): readonly SessionArchive[] {

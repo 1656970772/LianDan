@@ -4,14 +4,40 @@
   "logicalWidth": 1600,
   "logicalHeight": 900,
   "materialPlacement": {
-    "centerX": 600,
-    "centerY": 285,
-    "size": 160,
-    "offsetPerInstance": {
-      "x": 12,
-      "y": 3
+    "visibleLongEdge": 170,
+    "minimumGap": 4,
+    "usableRegion": {
+      "left": 104,
+      "top": 92,
+      "right": 1496,
+      "bottom": 700
     },
-    "rotationDegreesPerInstance": 7
+    "slots": [
+      { "centerX": 711, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 885, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 537, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 1059, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 363, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 1233, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 189, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 1407, "centerY": 525, "rotationDegrees": 0 },
+      { "centerX": 711, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 885, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 537, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 1059, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 363, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 1233, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 189, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 1407, "centerY": 351, "rotationDegrees": 0 },
+      { "centerX": 711, "centerY": 177, "rotationDegrees": 0 },
+      { "centerX": 885, "centerY": 177, "rotationDegrees": 0 },
+      { "centerX": 537, "centerY": 177, "rotationDegrees": 0 },
+      { "centerX": 1059, "centerY": 177, "rotationDegrees": 0 },
+      { "centerX": 363, "centerY": 177, "rotationDegrees": 0 },
+      { "centerX": 1233, "centerY": 177, "rotationDegrees": 0 },
+      { "centerX": 189, "centerY": 177, "rotationDegrees": 0 },
+      { "centerX": 1407, "centerY": 177, "rotationDegrees": 0 }
+    ]
   },
   "availableFireSourceIds": [
     "basic-fire"

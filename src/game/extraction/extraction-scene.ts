@@ -3,6 +3,7 @@ import Phaser from 'phaser'
 import type {
   DecodedCompositionMap,
   NormalizedM2Config,
+  NormalizedM2PresentationConfig,
 } from '../../config/index.ts'
 import {
   deriveActivePearlCount,
@@ -20,10 +21,7 @@ import type {
 import { EXTRACTION_COMPOSITION_GRID_SIZE } from '../../simulation/index.ts'
 import type { FireFlowReadView } from '../../simulation/fire-flow/index.ts'
 import type { M2WorkbenchModel } from '../../ui/createM2Workbench.ts'
-import {
-  createDropletOutline,
-  drawDroplet,
-} from '../presentation/droplet.ts'
+import { deriveMaterialContentRectangle } from '../../shared/material-content-geometry.ts'
 import {
   FireHeatField,
   type FireOcclusionInput,
@@ -35,32 +33,90 @@ import {
 } from '../presentation/fire/fire-presentation-config.ts'
 import { FirePresentation } from '../presentation/fire/fire-presentation.ts'
 import type { M2Snapshot } from './contracts.ts'
-import { M2GameplayRuntime } from './gameplay-runtime.ts'
+import {
+  M2GameplayRuntime,
+  type M2GameplayRuntimeSnapshot,
+} from './gameplay-runtime.ts'
 import { buildM2InventoryViews } from './inventory-view.ts'
 import {
-  M2_DROPLET_PRESENTATION,
+  createBrowserM5AudioBackend,
+  M5AudioDirector,
+} from './m5-audio-director.ts'
+import { createM5AudioConfigFromPresentation } from './m5-audio-config.ts'
+import {
+  deleteChangedCanvasDataset,
+  shouldPublishM5CanvasMetadata,
+  setChangedCanvasDataset,
+} from './m5-canvas-metadata.ts'
+import {
+  M5EffectPool,
+  type M5EffectVisitor,
+} from './m5-effect-pool.ts'
+import {
+  mapM5DomainEvent,
+  type M5CameraCue,
+  type M5EffectAnchor,
+  type M5EffectKind,
+} from './m5-feedback-mapper.ts'
+import {
+  M5FailurePresentation,
+  type M5FailureFrame,
+} from './m5-failure-presentation.ts'
+import { deriveM5FurnacePresentation } from './m5-furnace-presentation.ts'
+import {
+  renderM5MaterialMask,
+  type M5MaterialMaskConfig,
+} from './m5-material-mask.ts'
+import { createM5FirePresentationConfig } from './m5-fire-presentation-config.ts'
+import {
+  M5PresentationLifecycle,
+  type M5PresentationLifecycleSnapshot,
+} from './m5-presentation-lifecycle.ts'
+import {
+  deriveM5DebrisFrame,
+  M5DebrisLifetimeWindow,
+  M5WallClockRateAccumulator,
+  type M5DebrisLifetimeVisitor,
+} from './m5-visual-policy.ts'
+import {
+  copyM5MaterialTopologyEvidence,
+  type M5MaterialTopologyEvidence,
+} from './m5-material-topology-evidence.ts'
+import {
+  copyM5PearlEvidence,
+  type M5PearlEvidence,
+} from './m5-pearl-evidence.ts'
+import {
+  drawM5Effect,
+  drawM5LocalLight,
+  M5PearlRenderer,
+} from './m5-presentation-renderer.ts'
+import {
+  M5PearlSpritePool,
+  type M5PearlSpritePoolHost,
+} from './m5-pearl-sprite-pool.ts'
+import {
   M2_FIRE_OCCLUSION_CONFIG,
-  M2_FIRE_PRESENTATION_CONFIG,
 } from './presentation-config.ts'
 import { createM2RuntimeConfiguration } from './runtime-config.ts'
 
 const FIRE_TEXTURE_KEY = 'm2-fire-flow'
-const SNAPSHOT_INTERVAL_MILLISECONDS = 120
 const EMPTY_FIRE_OCCLUSION_RECTS = Object.freeze([])
 
 type MaterialVisual = {
   readonly texture: Phaser.Textures.CanvasTexture
   readonly image: Phaser.GameObjects.Image
-  readonly sourcePixels: ImageData
+  readonly sourceRgba: Uint8ClampedArray
   readonly outputPixels: ImageData
   remainingVolume: number
 }
 
-type EventSpark = {
-  x: number
-  y: number
-  life: number
-  color: number
+type MutableFireOcclusionCircles = {
+  count: number
+  x: Float32Array
+  y: Float32Array
+  radius: Float32Array
+  eligible: Uint8Array
 }
 
 export type M2ExtractionSceneMetadata = Readonly<{
@@ -74,6 +130,7 @@ export type M2ExtractionSceneOptions = Readonly<{
   config: NormalizedM2Config
   compositionMaps: readonly DecodedCompositionMap[]
   simulationContentFingerprint: string
+  presentationContentFingerprint: string
   onReady?: (metadata: M2ExtractionSceneMetadata) => void
   onSnapshot?: (snapshot: M2Snapshot) => void
 }>
@@ -82,6 +139,57 @@ function colorNumber(value: string): number {
   const normalized = value.startsWith('#') ? value.slice(1) : value
   const parsed = Number.parseInt(normalized, 16)
   return Number.isFinite(parsed) ? parsed : 0xffffff
+}
+
+function colorRgb(value: string): readonly [number, number, number] {
+  const color = colorNumber(value)
+  return [(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff]
+}
+
+function alphaByte(alpha: number): number {
+  return Math.round(Math.max(0, Math.min(1, alpha)) * 255)
+}
+
+function createM5MaterialMaskConfig(
+  presentation: NormalizedM2PresentationConfig,
+  themeBackground: string,
+): M5MaterialMaskConfig {
+  const material = presentation.material
+  return {
+    maskScale: material.maskScale,
+    edgeFeatherPixels: material.edgeFeatherPixels,
+    heatEdgeWidthPixels: material.heatEdgeWidthPixels,
+    heatEdgeColor: colorRgb(presentation.fire.body.color),
+    heatEdgeAlpha: alphaByte(presentation.fire.body.alpha),
+    charColor: colorRgb(themeBackground),
+    charAlpha: alphaByte(material.charAlpha),
+  }
+}
+
+function effectDurationSeconds(
+  effect: M5EffectKind,
+  presentation: NormalizedM2PresentationConfig,
+): number {
+  const durations = presentation.effects
+  switch (effect) {
+    case 'shield':
+    case 'caught':
+      return durations.shieldDurationSeconds
+    case 'damage':
+      return durations.damageDurationSeconds
+    case 'steam':
+    case 'birth':
+      return durations.steamDurationSeconds
+    case 'warningOne':
+    case 'ready':
+      return durations.warningOneDurationSeconds
+    case 'warningTwo':
+      return durations.warningTwoDurationSeconds
+    case 'failure':
+      return durations.failureDurationSeconds
+    case 'fight':
+      return presentation.camera.durationSeconds
+  }
 }
 
 function materialTextureKey(materialInstanceId: string): string {
@@ -131,15 +239,30 @@ export class M2ExtractionScene extends Phaser.Scene {
   readonly #runtime: M2GameplayRuntime
   readonly #rules: PrototypeRules
   readonly #theme
+  readonly #presentation: NormalizedM2PresentationConfig
   readonly #fireConfig: FirePresentationConfig
   readonly #firePresentation: FirePresentation
   readonly #fireHeatField: FireHeatField
+  readonly #materialMaskConfig: M5MaterialMaskConfig
+  readonly #presentationLifecycle: M5PresentationLifecycle
+  readonly #failurePresentation: M5FailurePresentation
+  readonly #audioDirector: M5AudioDirector
+  readonly #effectPool: M5EffectPool
+  readonly #pearlRenderer: M5PearlRenderer
+  readonly #pearlStandardRadius: ReadonlyMap<PearlType, number>
   readonly #reducedMotion =
     globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   #baseGraphics: Phaser.GameObjects.Graphics | null = null
+  #debrisGraphics: Phaser.GameObjects.Graphics | null = null
   #pearlGraphics: Phaser.GameObjects.Graphics | null = null
+  #pearlSpritePool: M5PearlSpritePool<
+    Phaser.GameObjects.Graphics,
+    Phaser.GameObjects.Image
+  > | null = null
   #collectorGraphics: Phaser.GameObjects.Graphics | null = null
   #effectGraphics: Phaser.GameObjects.Graphics | null = null
+  #localLightGraphics: Phaser.GameObjects.Graphics | null = null
+  #failureGraphics: Phaser.GameObjects.Graphics | null = null
   #fireSparkGraphics: Phaser.GameObjects.Graphics | null = null
   #fireTexture: Phaser.Textures.CanvasTexture | null = null
   #firePixels: ImageData | null = null
@@ -154,7 +277,14 @@ export class M2ExtractionScene extends Phaser.Scene {
   > | null = null
   #fireOcclusionInput: FireOcclusionInput | null = null
   #fireOcclusionTick = Number.NEGATIVE_INFINITY
+  #fireOcclusionCircles: MutableFireOcclusionCircles
+  readonly #fireOcclusionGrowthCapacity: number
   readonly #materialFireCoverage: Uint8Array
+  readonly #emberRateAccumulator = new M5WallClockRateAccumulator()
+  #emberEmissionSequence = 0
+  readonly #emberFrame = { drawCount: 0, stride: 0, startIndex: 0 }
+  readonly #debrisLifetimeWindow: M5DebrisLifetimeWindow
+  readonly #debrisFrame = { emittedCount: 0, visibleCount: 0 }
   readonly #fireRevealInput: {
     frontDistancePixels: number
     frontFeatherPixels: number
@@ -162,25 +292,138 @@ export class M2ExtractionScene extends Phaser.Scene {
     frontDistancePixels: 0,
     frontFeatherPixels: 0,
   }
-  readonly #dropletOutlines = new Map<number, Phaser.Math.Vector2[]>()
   readonly #materialVisuals = new Map<string, MaterialVisual>()
-  readonly #eventSparks: EventSpark[] = []
+  readonly #debrisMaterialViews = new Map<
+    string,
+    ExtractionMaterialReadView
+  >()
+  readonly #liveMaterialIds = new Set<string>()
+  readonly #pearlById = new Map<
+    string,
+    ExtractionSimulationReadView['pearls'][number]
+  >()
   #lastRenderedTick = Number.NEGATIVE_INFINITY
   #lastSnapshotTime = Number.NEGATIVE_INFINITY
+  #requestedSprayingProjection: boolean | null = null
   #lastEventTypes: readonly string[] = []
+  #presentationSessionId: string | null = null
+  #lastRulesFireActive = false
+  #forceRuleFireOff = false
+  #lastPresentationTimestamp = 0
+  #debrisRenderTick = 0
+  #presentationSnapshot: M5PresentationLifecycleSnapshot
   #ready = false
+  readonly #debrisVisitor: M5DebrisLifetimeVisitor = (
+    slotIndex,
+    ownerId,
+    lifeProgress,
+  ) => {
+    this.#drawMaterialDebrisSlot(
+      slotIndex,
+      ownerId,
+      lifeProgress,
+      this.#debrisRenderTick,
+    )
+  }
+  readonly #effectVisitor: M5EffectVisitor = (
+    kind,
+    x,
+    y,
+    secondaryX,
+    secondaryY,
+    progress,
+    slotIndex,
+  ) => {
+    this.#drawEffect(
+      kind,
+      x,
+      y,
+      secondaryX,
+      secondaryY,
+      progress,
+      slotIndex,
+    )
+  }
 
   constructor(options: M2ExtractionSceneOptions) {
     super({ key: 'm2-extraction-scene' })
     this.#options = options
     this.#theme = options.config.gameplay.prototype.theme.colors
+    this.#presentation = options.config.presentation
+    this.#pearlRenderer = new M5PearlRenderer({
+      pearlTypes: options.config.gameplay.pearlTypes,
+      materials: options.config.base.materials,
+      profiles: options.config.presentation.pearls,
+    })
+    this.#pearlStandardRadius = new Map(
+      options.config.gameplay.pearlTypes.map((candidate) => [
+        candidate.pearlType,
+        candidate.standardRadius,
+      ]),
+    )
     this.#fireConfig = fitFirePresentationConfig(
       options.config.gameplay.prototype.logicalWidth,
       options.config.gameplay.prototype.logicalHeight,
-      M2_FIRE_PRESENTATION_CONFIG,
+      createM5FirePresentationConfig(
+        options.config.presentation,
+        options.config.gameplay.prototype.logicalWidth,
+        options.config.gameplay.prototype.logicalHeight,
+      ),
     )
     this.#firePresentation = new FirePresentation(this.#fireConfig)
     this.#fireHeatField = new FireHeatField(this.#fireConfig.heatField)
+    this.#materialMaskConfig = createM5MaterialMaskConfig(
+      options.config.presentation,
+      this.#theme.background,
+    )
+    this.#presentationLifecycle = new M5PresentationLifecycle({
+      afterglowSeconds: options.config.presentation.fire.afterglowSeconds,
+      steadyThresholdSeconds:
+        options.config.presentation.fire.steadyThresholdSeconds,
+      failureDurationSeconds: this.#reducedMotion
+        ? options.config.presentation.accessibility
+            .reducedMotionFailureDurationSeconds
+        : options.config.presentation.effects.failureDurationSeconds,
+      failurePhases: {
+        shatteringStartRatio:
+          options.config.presentation.failure.shatteringStartRatio,
+        gatheringStartRatio:
+          options.config.presentation.failure.gatheringStartRatio,
+        flyingStartRatio: options.config.presentation.failure.flyingStartRatio,
+      },
+      reducedMotion: this.#reducedMotion,
+    })
+    this.#failurePresentation = new M5FailurePresentation(
+      options.config.presentation.failure,
+      { reducedMotion: this.#reducedMotion },
+    )
+    this.#presentationSnapshot = this.#presentationLifecycle.getSnapshot()
+    const audioConfig = createM5AudioConfigFromPresentation(
+      options.config.presentation,
+    )
+    this.#audioDirector = new M5AudioDirector(
+      audioConfig,
+      createBrowserM5AudioBackend(globalThis, audioConfig.maxVoices),
+    )
+    const effectCapacity = options.config.presentation.performance
+    this.#effectPool = new M5EffectPool(
+      effectCapacity.effectPoolInitialCapacity,
+      effectCapacity.effectPoolMaximumCapacity,
+    )
+    this.#debrisLifetimeWindow = new M5DebrisLifetimeWindow({
+      capacity: effectCapacity.particlePoolSize,
+      lifetimeFrames:
+        options.config.presentation.material.debrisLifetimeSeconds *
+        options.config.base.parameters.simulation.fixedStepHz,
+    })
+    this.#fireOcclusionGrowthCapacity = effectCapacity.pearlPoolSize
+    this.#fireOcclusionCircles = {
+      count: 0,
+      x: new Float32Array(effectCapacity.pearlPoolSize),
+      y: new Float32Array(effectCapacity.pearlPoolSize),
+      radius: new Float32Array(effectCapacity.pearlPoolSize),
+      eligible: new Uint8Array(effectCapacity.pearlPoolSize),
+    }
     this.#materialFireCoverage = new Uint8Array(
       this.#fireConfig.heatField.width * this.#fireConfig.heatField.height,
     )
@@ -231,10 +474,19 @@ export class M2ExtractionScene extends Phaser.Scene {
     this.#fireImage.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
 
     this.#fireSparkGraphics = this.add.graphics().setDepth(2).setVisible(false)
-    this.#pearlGraphics = this.add.graphics().setDepth(4)
+    this.#debrisGraphics = this.add.graphics().setDepth(3.5)
+    this.#pearlGraphics = this.add.graphics().setDepth(4.2)
+    this.#pearlSpritePool = this.#createPearlSpritePool()
+    this.#localLightGraphics = this.add
+      .graphics()
+      .setDepth(4.5)
+      .setBlendMode(Phaser.BlendModes.ADD)
     this.#collectorGraphics = this.add.graphics().setDepth(5)
     this.#effectGraphics = this.add.graphics().setDepth(6)
-    this.#renderSimulation(this.#runtime.snapshot().simulation)
+    this.#failureGraphics = this.add.graphics().setDepth(7)
+    const initialRuntime = this.#runtime.snapshot()
+    this.#resetPresentationSession(initialRuntime.application.sessionId)
+    this.#renderSimulation(initialRuntime.simulation, 0)
     this.#disableFirePresentation()
     this.#ready = true
     const snapshot = this.getSnapshot()
@@ -249,37 +501,81 @@ export class M2ExtractionScene extends Phaser.Scene {
   }
 
   update(time: number): void {
-    this.#runtime.frame(time)
+    this.#lastPresentationTimestamp = Math.max(
+      this.#lastPresentationTimestamp,
+      time,
+    )
+    const runtime = this.#runtime.frame(time)
+    if (runtime.application.sessionId !== this.#presentationSessionId) {
+      this.#resetPresentationSession(runtime.application.sessionId)
+    }
     const committedEvents = this.#runtime.drainDomainEvents()
     if (committedEvents.length > 0) {
       this.#lastEventTypes = committedEvents.map((event) => event.type)
-      this.#consumeDomainEvents(committedEvents)
+      this.#consumeDomainEvents(committedEvents, runtime.simulation, time)
     }
-    const runtime = this.#runtime.snapshot()
     const simulation = runtime.simulation
+    this.#advancePresentation(runtime, time)
     if (simulation.tick !== this.#lastRenderedTick) {
-      this.#renderSimulation(simulation)
-    } else if (this.#eventSparks.length > 0) {
-      this.#renderEffects()
+      this.#renderSimulation(simulation, time)
     }
-    this.#renderFireFrame(
-      simulation,
-      time,
-      runtime.application.isSpraying && !runtime.application.paused,
-    )
+    this.#renderEffects(time)
+    this.#renderFireFrame(simulation, time, this.#presentationSnapshot)
+    this.#renderLocalLight(runtime.application.fireSize)
+    this.#renderFailurePresentation(simulation)
+    this.#audioDirector.update(time)
 
-    const snapshot = this.getSnapshot()
-    this.#publishCanvasMetadata(snapshot)
+    const presentationEvents = this.#presentationLifecycle.drainEvents(
+      runtime.application.sessionId,
+    )
+    if (presentationEvents.length > 0) {
+      this.#lastEventTypes = [
+        ...this.#lastEventTypes,
+        ...presentationEvents.map((event) => event.type),
+      ]
+    }
+
+    const reachedRequestedSprayingState =
+      this.#requestedSprayingProjection !== null &&
+      runtime.application.isSpraying === this.#requestedSprayingProjection
+    if (reachedRequestedSprayingState) {
+      this.#requestedSprayingProjection = null
+    }
+
     if (
-      time - this.#lastSnapshotTime >= SNAPSHOT_INTERVAL_MILLISECONDS ||
-      committedEvents.length > 0
+      shouldPublishM5CanvasMetadata({
+        elapsedMilliseconds: time - this.#lastSnapshotTime,
+        hasCommittedEvents: committedEvents.length > 0,
+        hasPresentationEvents: presentationEvents.length > 0,
+        reachedRequestedSprayingState,
+      })
     ) {
       this.#lastSnapshotTime = time
+      const snapshot = this.getSnapshot()
+      this.#publishCanvasMetadata(snapshot)
       this.#options.onSnapshot?.(snapshot)
     }
   }
 
   captureRuleCommand(command: RuleCommand): void {
+    if (command.type === 'SetSpraying') {
+      this.#requestedSprayingProjection = command.payload.spraying
+      this.#forceRuleFireOff = !command.payload.spraying
+      if (!command.payload.spraying && this.#presentationSessionId !== null) {
+        this.#resetTransientEmission(this.#lastPresentationTimestamp)
+        this.#debrisGraphics?.clear()
+        this.#presentationSnapshot =
+          this.#presentationLifecycle.setRuleFireActive(
+            this.#presentationSessionId,
+            false,
+            this.#lastPresentationTimestamp,
+          ) ?? this.#presentationSnapshot
+        this.#audioDirector.setFireActive(
+          false,
+          this.#lastPresentationTimestamp,
+        )
+      }
+    }
     this.#runtime.captureRuleCommand(command)
   }
 
@@ -287,6 +583,69 @@ export class M2ExtractionScene extends Phaser.Scene {
     control: Parameters<M2GameplayRuntime['captureControl']>[0],
   ): void {
     this.#runtime.captureControl(control)
+    const lifecycleRequestsPause =
+      control.type === 'Pause' ||
+      control.type === 'RequestRestart' ||
+      ((control.type === 'WindowBlur' ||
+        control.type === 'WindowFocus' ||
+        control.type === 'VisibilityChanged') &&
+        (!control.payload.lifecycleSnapshot.hasFocus ||
+          control.payload.lifecycleSnapshot.visibilityState === 'hidden'))
+    if (lifecycleRequestsPause) {
+      this.#forceRuleFireOff = true
+      if (this.#presentationSessionId !== null) {
+        this.#presentationLifecycle.pauseTimeline(
+          this.#presentationSessionId,
+          this.#lastPresentationTimestamp,
+        )
+        this.#presentationSnapshot =
+          this.#presentationLifecycle.hardClearFire(
+            this.#presentationSessionId,
+            this.#lastPresentationTimestamp,
+          ) ?? this.#presentationSnapshot
+      }
+      this.#audioDirector.setFireActive(false, this.#lastPresentationTimestamp)
+      this.#resetTransientEmission(this.#lastPresentationTimestamp)
+      this.#debrisGraphics?.clear()
+      this.#disableFirePresentation()
+    }
+  }
+
+  unlockAudio(): void {
+    void this.#audioDirector.unlock().catch(() => {
+      // Browsers may reject an unlock not directly associated with a gesture.
+    })
+  }
+
+  setAudioVolume(volume: number): void {
+    this.#audioDirector.setVolume(volume)
+  }
+
+  setAudioMuted(muted: boolean): void {
+    this.#audioDirector.setMuted(muted)
+  }
+
+  getMaterialTopologyEvidence(): readonly M5MaterialTopologyEvidence[] {
+    return copyM5MaterialTopologyEvidence(this.#runtime.snapshot().simulation)
+  }
+
+  getPearlEvidence(): readonly M5PearlEvidence[] {
+    return copyM5PearlEvidence(this.#runtime.snapshot().simulation)
+  }
+
+  getPresentationEvidence(): Readonly<{
+    activeEffectKinds: readonly M5EffectKind[]
+    collectorCenter: Readonly<{ x: number; y: number }>
+    collectorVelocityX: number
+    simulationTick: number
+  }> {
+    const simulation = this.#runtime.snapshot().simulation
+    return {
+      activeEffectKinds: this.#effectPool.copyActiveKinds(),
+      collectorCenter: { ...simulation.collector.center },
+      collectorVelocityX: simulation.collector.velocityX,
+      simulationTick: simulation.tick,
+    }
   }
 
   getSnapshot(): M2Snapshot {
@@ -301,14 +660,44 @@ export class M2ExtractionScene extends Phaser.Scene {
       this.#options.config,
       domain.inventory,
     )
+    const audioDiagnostics = this.#audioDirector.getDiagnostics()
+    const effectPoolDiagnostics = this.#effectPool.getDiagnostics()
+    const failureInvestedMaterials = domain.materialInstances.map(
+      ({ materialDefinitionId }) =>
+        this.#options.config.base.materials.find(
+          ({ id }) => id === materialDefinitionId,
+        )?.nameZh ?? materialDefinitionId,
+    )
+    const furnaceSource =
+      gameplay.fireSources.find(
+        (source) => source.id === runtime.application.equippedFireSourceId,
+      ) ??
+      gameplay.fireSources.find((source) =>
+        gameplay.prototype.availableFireSourceIds.includes(source.id),
+      ) ??
+      gameplay.fireSources[0]
+    if (furnaceSource === undefined) {
+      throw new Error('可用火源配置不能为空。')
+    }
+    const furnacePresentation = deriveM5FurnacePresentation({
+      currentTemperature: runtime.application.furnaceTemperature,
+      fireSize: runtime.application.fireSize,
+      isSpraying: runtime.application.isSpraying,
+      paused: runtime.application.paused,
+      status: runtime.application.status,
+      source: furnaceSource,
+    })
 
     return {
       ready: this.#ready,
       scene: 'm2-extraction',
       logicalWidth: gameplay.prototype.logicalWidth,
       logicalHeight: gameplay.prototype.logicalHeight,
+      seed: gameplay.prototype.seed,
       simulationContentFingerprint:
         this.#options.simulationContentFingerprint,
+      presentationContentFingerprint:
+        this.#options.presentationContentFingerprint,
       flowGeneration: runtime.simulation.fireFlow.generation,
       remainingMaterialCellCount: countRemainingCells(runtime.simulation),
       lastDomainEventTypes: [...this.#lastEventTypes],
@@ -318,7 +707,7 @@ export class M2ExtractionScene extends Phaser.Scene {
       fireSources: gameplay.fireSources.map((source) => ({
         id: source.id,
         nameZh: source.nameZh,
-        descriptionZh: '稳定、易控制的基础火种。',
+        descriptionZh: source.descriptionZh,
       })),
       equippedFireSourceId: runtime.application.equippedFireSourceId,
       fireSize: runtime.application.fireSize,
@@ -327,13 +716,27 @@ export class M2ExtractionScene extends Phaser.Scene {
         max: 100,
       },
       isSpraying: runtime.application.isSpraying,
+      furnaceTemperature: runtime.application.furnaceTemperature,
+      furnaceTemperatureRange: furnacePresentation.range,
+      furnaceTemperatureThresholds: {
+        warmRatio: this.#options.config.presentation.temperature.warmRatio,
+        blazingRatio:
+          this.#options.config.presentation.temperature.blazingRatio,
+      },
+      furnaceTemperatureTrend: furnacePresentation.trend,
       flameThrustEnabled: domain.flameThrustEnabled,
+      audioVolume: audioDiagnostics.volume,
+      audioMuted: audioDiagnostics.muted,
       canFinish: runtime.application.canFinish,
       lossWarningLevel: runtime.application.lossWarningLevel,
       caughtVolumes: { ...domain.ledger.caughtVolumes },
       normalSlagQuantity: deriveNormalSlagQuantity(domain, this.#rules),
       failureResult: runtime.application.failureResult,
+      failureInvestedMaterials,
+      failurePresentationComplete:
+        this.#presentationSnapshot.failure.state === 'result',
       paused: runtime.application.paused,
+      pauseReasons: [...runtime.application.pauseReasons],
       restartConfirmation: runtime.application.restartConfirmation,
       inventory,
       selectedMaterialBatchId: domain.selectedMaterialBatchId,
@@ -344,6 +747,26 @@ export class M2ExtractionScene extends Phaser.Scene {
       activePearlCount: deriveActivePearlCount(domain),
       caughtPearlCount,
       interactionCount: runtime.simulation.interactionCount,
+      debug: {
+        simulationContentFingerprint:
+          this.#options.simulationContentFingerprint,
+        presentationContentFingerprint:
+          this.#options.presentationContentFingerprint,
+        flowGeneration: runtime.simulation.fireFlow.generation,
+        pauseReasons: [...runtime.application.pauseReasons],
+        firePresentationState: this.#presentationSnapshot.fire.state,
+        fireVisualIntensity: this.#presentationSnapshot.fire.visualIntensity,
+        failurePresentationState: this.#presentationSnapshot.failure.state,
+        failurePresentationProgress: this.#presentationSnapshot.failure.progress,
+        audioVoiceCount: audioDiagnostics.activeVoiceCount,
+        effectPoolActive: effectPoolDiagnostics.activeCount,
+      },
+      firePresentationState: this.#presentationSnapshot.fire.state,
+      fireVisualIntensity: this.#presentationSnapshot.fire.visualIntensity,
+      failurePresentationState: this.#presentationSnapshot.failure.state,
+      failurePresentationProgress: this.#presentationSnapshot.failure.progress,
+      audioDiagnostics,
+      effectPoolDiagnostics,
     }
   }
 
@@ -353,6 +776,10 @@ export class M2ExtractionScene extends Phaser.Scene {
       visual.texture.destroy()
     }
     this.#materialVisuals.clear()
+    this.#pearlSpritePool?.destroy()
+    this.#pearlSpritePool = null
+    this.#effectPool.reset()
+    void this.#audioDirector.destroy()
   }
 
   #drawChamber(
@@ -365,63 +792,134 @@ export class M2ExtractionScene extends Phaser.Scene {
     const raised = colorNumber(this.#theme.surfaceRaised)
     const border = colorNumber(this.#theme.border)
     const accent = colorNumber(this.#theme.accent)
+    const danger = colorNumber(this.#theme.danger)
     graphics.fillStyle(background, 1)
     graphics.fillRect(0, 0, width, height)
-    graphics.fillStyle(surface, 1)
-    graphics.fillRoundedRect(42, 30, width - 84, height - 60, 28)
-    graphics.lineStyle(3, border, 0.8)
-    graphics.strokeRoundedRect(42, 30, width - 84, height - 60, 28)
+    graphics.fillStyle(surface, 0.96)
+    graphics.fillRoundedRect(34, 26, width - 68, height - 52, 34)
+    graphics.lineStyle(3, border, 0.92)
+    graphics.strokeRoundedRect(34, 26, width - 68, height - 52, 34)
+    graphics.lineStyle(1, accent, 0.24)
+    graphics.strokeRoundedRect(48, 40, width - 96, height - 80, 28)
 
-    graphics.fillStyle(raised, 0.82)
-    graphics.fillRoundedRect(105, 86, width - 210, height - 158, 80)
-    graphics.lineStyle(2, border, 0.62)
-    graphics.strokeRoundedRect(105, 86, width - 210, height - 158, 80)
+    graphics.fillStyle(raised, 0.88)
+    graphics.fillRoundedRect(104, 92, width - 208, height - 204, 76)
+    graphics.lineStyle(2, border, 0.72)
+    graphics.strokeRoundedRect(104, 92, width - 208, height - 204, 76)
 
-    graphics.lineStyle(5, accent, 0.52)
+    // 炉室中央只保留稀疏的环形刻度，不再暴露技术网格。
+    graphics.fillStyle(background, 0.52)
+    graphics.fillEllipse(width / 2, 365, width * 0.69, height * 0.56)
+    graphics.lineStyle(3, accent, 0.28)
+    graphics.strokeEllipse(width / 2, 365, width * 0.69, height * 0.56)
+    graphics.lineStyle(1, border, 0.38)
+    graphics.strokeEllipse(width / 2, 365, width * 0.58, height * 0.43)
+    graphics.strokeEllipse(width / 2, 365, width * 0.45, height * 0.31)
+
+    // 四角云气纹与两侧炉柱形成志怪图鉴式边框。
+    graphics.lineStyle(4, border, 0.68)
+    for (const side of [-1, 1]) {
+      const pillarX = side < 0 ? 76 : width - 76
+      graphics.fillStyle(background, 0.72)
+      graphics.fillRoundedRect(pillarX - 18, 156, 36, height - 344, 15)
+      graphics.strokeRoundedRect(pillarX - 18, 156, 36, height - 344, 15)
+      for (let band = 0; band < 4; band += 1) {
+        const bandY = 206 + band * 116
+        graphics.lineStyle(3, accent, 0.34)
+        graphics.lineBetween(pillarX - 14, bandY, pillarX + 14, bandY)
+      }
+      const cloudX = side < 0 ? 148 : width - 148
+      const direction = side < 0 ? 1 : -1
+      graphics.lineStyle(3, accent, 0.4)
+      graphics.beginPath()
+      graphics.moveTo(cloudX, 132)
+      graphics.lineTo(cloudX + direction * 38, 106)
+      graphics.lineTo(cloudX + direction * 70, 140)
+      graphics.lineTo(cloudX + direction * 108, 118)
+      graphics.lineTo(cloudX + direction * 142, 98)
+      graphics.lineTo(cloudX + direction * 174, 132)
+      graphics.lineTo(cloudX + direction * 208, 112)
+      graphics.strokePath()
+    }
+
+    graphics.fillStyle(background, 0.88)
+    graphics.fillCircle(width / 2, 92, 42)
+    graphics.lineStyle(3, accent, 0.64)
+    graphics.strokeCircle(width / 2, 92, 42)
+    graphics.lineStyle(1, danger, 0.58)
+    graphics.strokeCircle(width / 2, 92, 30)
+
+    // 下方弧线既是丹珠落势引导，也是接液皿移动轨迹的视觉框架。
+    graphics.lineStyle(5, accent, 0.34)
     graphics.beginPath()
-    graphics.arc(width / 2, 120, width * 0.34, Math.PI * 0.08, Math.PI * 0.92)
+    graphics.arc(width / 2, 118, width * 0.35, Math.PI * 0.08, Math.PI * 0.92)
     graphics.strokePath()
-    graphics.lineStyle(2, border, 0.34)
-    for (let x = 180; x < width - 180; x += 80) {
-      graphics.lineBetween(x, 120, x, height - 100)
-    }
-    for (let y = 140; y < height - 100; y += 80) {
-      graphics.lineBetween(140, y, width - 140, y)
-    }
+    graphics.lineStyle(2, border, 0.54)
+    graphics.lineBetween(160, 820, width - 160, 820)
+    graphics.fillStyle(accent, 0.42)
+    graphics.fillCircle(160, 820, 8)
+    graphics.fillCircle(width - 160, 820, 8)
 
     const source = this.#options.config.gameplay.fireSources[0]
     if (source !== undefined) {
       graphics.fillStyle(border, 1)
-      graphics.fillRoundedRect(source.origin.x - 58, source.origin.y - 4, 116, 26, 10)
-      graphics.fillStyle(accent, 0.9)
-      graphics.fillRoundedRect(source.origin.x - 38, source.origin.y, 76, 10, 5)
+      graphics.fillRoundedRect(source.origin.x - 64, source.origin.y - 8, 128, 32, 12)
+      graphics.lineStyle(2, accent, 0.72)
+      graphics.strokeRoundedRect(source.origin.x - 64, source.origin.y - 8, 128, 32, 12)
+      graphics.fillStyle(background, 0.94)
+      graphics.fillRoundedRect(source.origin.x - 40, source.origin.y - 2, 80, 12, 6)
+      graphics.fillStyle(danger, 0.52)
+      graphics.fillRoundedRect(source.origin.x - 30, source.origin.y + 1, 60, 6, 3)
     }
+
+    this.add
+      .text(width / 2, 92, '丹', {
+        color: this.#theme.accent,
+        fontFamily: 'STKaiti, KaiTi, SimSun, serif',
+        fontSize: '34px',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5)
+      .setDepth(0.2)
+      .setAlpha(0.82)
   }
 
-  #renderSimulation(view: ExtractionSimulationReadView): void {
-    this.#renderMaterials(view.materials)
-    this.#renderPearls(view)
+  #renderSimulation(
+    view: ExtractionSimulationReadView,
+    timestampMilliseconds: number,
+  ): void {
+    this.#renderMaterials(view.materials, view.tick)
+    this.#renderPearls(view, timestampMilliseconds)
     this.#renderCollector(view)
-    this.#renderEffects()
     this.#lastRenderedTick = view.tick
   }
 
   #renderFireFrame(
     view: ExtractionSimulationReadView,
     timestamp: number,
-    presentationActive: boolean,
+    presentation: M5PresentationLifecycleSnapshot,
   ): void {
     const texture = this.#fireTexture
     const image = this.#fireImage
     const sparks = this.#fireSparkGraphics
-    const source = view.effectiveFireSource
     if (texture === null || image === null || sparks === null) return
-    if (!presentationActive || source === null) {
+    if (presentation.fire.state === 'off') {
       this.#disableFirePresentation()
       return
     }
 
-    const flow = this.#syncPresentationFlow(view.fireFlow)
+    const liveSource = view.effectiveFireSource
+    const source = liveSource ?? this.#lastRenderedFireSource
+    const flow =
+      liveSource !== null
+        ? this.#syncPresentationFlow(view.fireFlow)
+        : this.#presentationFlowView
+    if (source === null || flow === null) {
+      image.setVisible(false)
+      sparks.clear().setVisible(false)
+      setChangedCanvasDataset(this.game.canvas.dataset, 'fireState', 'loading')
+      return
+    }
     image.setVisible(true)
     sparks.setVisible(true)
     this.#fireLayerVisible = true
@@ -434,7 +932,7 @@ export class M2ExtractionScene extends Phaser.Scene {
       this.#firePrepared = true
     }
     if (!this.#firePrepared) {
-      this.game.canvas.dataset.fireState = 'loading'
+      setChangedCanvasDataset(this.game.canvas.dataset, 'fireState', 'loading')
       return
     }
 
@@ -484,6 +982,7 @@ export class M2ExtractionScene extends Phaser.Scene {
       logicalHeight,
     )
     const isEmerging =
+      presentation.fire.state === 'emerging' &&
       !this.#reducedMotion &&
       revealDistance !== null &&
       revealDistance < revealCompletionDistance
@@ -505,6 +1004,18 @@ export class M2ExtractionScene extends Phaser.Scene {
       this.#firePixels = new ImageData(frame.width, frame.height)
     }
     this.#firePixels.data.set(frame.pixels)
+    const visualIntensity = presentation.fire.visualIntensity
+    if (visualIntensity < 1) {
+      for (
+        let alphaOffset = 3;
+        alphaOffset < this.#firePixels.data.length;
+        alphaOffset += 4
+      ) {
+        this.#firePixels.data[alphaOffset] = Math.round(
+          this.#firePixels.data[alphaOffset]! * visualIntensity,
+        )
+      }
+    }
     texture.context.putImageData(this.#firePixels, 0, 0)
     texture.refresh()
     this.#lastRenderedFireGeneration = flow.generation
@@ -517,13 +1028,29 @@ export class M2ExtractionScene extends Phaser.Scene {
     sparks.clear()
     sparks.fillStyle(
       this.#fireConfig.colors.head,
-      this.#fireConfig.sparks.alpha,
+      this.#fireConfig.sparks.alpha * visualIntensity,
     )
-    for (
-      let index = 0;
-      index < particles.count;
-      index += this.#fireConfig.sparks.stride
-    ) {
+    const emittedEmberCount = this.#emberRateAccumulator.sample(
+      this.#lastRulesFireActive ? this.#presentation.fire.emberRate : 0,
+      timestamp,
+    )
+    const emberFrame = this.#emberFrame
+    emberFrame.drawCount = Math.min(particles.count, emittedEmberCount)
+    if (emberFrame.drawCount === 0 || particles.count === 0) {
+      emberFrame.stride = 0
+      emberFrame.startIndex = 0
+    } else {
+      emberFrame.stride = Math.max(
+        1,
+        Math.floor(particles.count / emberFrame.drawCount),
+      )
+      emberFrame.startIndex =
+        (this.#emberEmissionSequence * 97) % particles.count
+    }
+    this.#emberEmissionSequence += emittedEmberCount
+    for (let sample = 0; sample < emberFrame.drawCount; sample += 1) {
+      const index =
+        (emberFrame.startIndex + sample * emberFrame.stride) % particles.count
       if (isEmerging && revealDistance !== null) {
         const particleX =
           particles.x[index]! + particles.displayOffsetX[index]!
@@ -549,18 +1076,58 @@ export class M2ExtractionScene extends Phaser.Scene {
     }
 
     const canvas = this.game.canvas
-    canvas.dataset.fireState = this.#reducedMotion
-      ? 'reduced'
-      : isEmerging
-        ? 'emerging'
-        : 'animated'
-    canvas.dataset.fireStartup = isEmerging ? 'emerging' : 'steady'
-    canvas.dataset.fireFrontDistance = isEmerging
-      ? revealDistance!.toFixed(1)
-      : 'full'
-    canvas.dataset.fireFrame = String(this.#firePresentation.frame)
-    canvas.dataset.fireParticleCount = String(particles.count)
-    canvas.dataset.fireSourceDirection = `${source.direction.x.toFixed(6)},${source.direction.y.toFixed(6)}`
+    if (
+      !isEmerging &&
+      presentation.fire.state === 'emerging' &&
+      this.#presentationSessionId !== null
+    ) {
+      this.#presentationSnapshot =
+        this.#presentationLifecycle.markFireSteady(
+          this.#presentationSessionId,
+          timestamp,
+        ) ?? this.#presentationSnapshot
+    }
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'fireState',
+      presentation.fire.state === 'cooling'
+        ? 'cooling'
+        : this.#reducedMotion
+          ? 'reduced'
+          : isEmerging
+            ? 'emerging'
+            : 'animated',
+    )
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'fireStartup',
+      isEmerging ? 'emerging' : 'steady',
+    )
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'fireFrontDistance',
+      isEmerging ? revealDistance!.toFixed(1) : 'full',
+    )
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'fireFrame',
+      String(this.#firePresentation.frame),
+    )
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'fireParticleCount',
+      String(particles.count),
+    )
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'fireVisualIntensity',
+      visualIntensity.toFixed(3),
+    )
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'fireSourceDirection',
+      `${source.direction.x.toFixed(6)},${source.direction.y.toFixed(6)}`,
+    )
   }
 
   #syncPresentationFlow(flow: ExtractionFireFlowReadView): FireFlowReadView {
@@ -595,25 +1162,21 @@ export class M2ExtractionScene extends Phaser.Scene {
     ) {
       return this.#fireOcclusionInput
     }
-    const activePearls = view.pearls.filter(
-      (pearl) => pearl.state === 'active',
-    )
-    const count = activePearls.length
-    const x = new Float32Array(count)
-    const y = new Float32Array(count)
-    const radius = new Float32Array(count)
-    const eligible = new Uint8Array(count)
-    for (let index = 0; index < count; index += 1) {
-      const pearl = activePearls[index]!
-      x[index] = pearl.position.x
-      y[index] = pearl.position.y
-      radius[index] = pearl.radius
-      eligible[index] = 1
+    let count = 0
+    for (const pearl of view.pearls) {
+      if (pearl.state !== 'active') continue
+      this.#ensureFireOcclusionCapacity(count + 1)
+      this.#fireOcclusionCircles.x[count] = pearl.position.x
+      this.#fireOcclusionCircles.y[count] = pearl.position.y
+      this.#fireOcclusionCircles.radius[count] = pearl.radius
+      this.#fireOcclusionCircles.eligible[count] = 1
+      count += 1
     }
+    this.#fireOcclusionCircles.count = count
     this.#rasterizeMaterialFireCoverage(view.materials)
-    this.#fireOcclusionInput = {
+    this.#fireOcclusionInput ??= {
       fullObstacleRects: EMPTY_FIRE_OCCLUSION_RECTS,
-      circles: { count, x, y, radius, eligible },
+      circles: this.#fireOcclusionCircles,
       circleRadiusScale: M2_FIRE_OCCLUSION_CONFIG.circleRadiusScale,
       circleFeatherPixels: M2_FIRE_OCCLUSION_CONFIG.circleFeatherPixels,
       coverageMask: {
@@ -624,6 +1187,26 @@ export class M2ExtractionScene extends Phaser.Scene {
     }
     this.#fireOcclusionTick = view.tick
     return this.#fireOcclusionInput
+  }
+
+  #ensureFireOcclusionCapacity(requiredCapacity: number): void {
+    const circles = this.#fireOcclusionCircles
+    if (requiredCapacity <= circles.x.length) return
+    const capacity =
+      Math.ceil(requiredCapacity / this.#fireOcclusionGrowthCapacity) *
+      this.#fireOcclusionGrowthCapacity
+    const x = new Float32Array(capacity)
+    const y = new Float32Array(capacity)
+    const radius = new Float32Array(capacity)
+    const eligible = new Uint8Array(capacity)
+    x.set(circles.x)
+    y.set(circles.y)
+    radius.set(circles.radius)
+    eligible.set(circles.eligible)
+    circles.x = x
+    circles.y = y
+    circles.radius = radius
+    circles.eligible = eligible
   }
 
   #rasterizeMaterialFireCoverage(
@@ -719,16 +1302,33 @@ export class M2ExtractionScene extends Phaser.Scene {
     this.#lastRenderedFireGeneration = Number.NEGATIVE_INFINITY
     this.#lastRenderedFireSource = null
     const canvas = this.game.canvas
-    canvas.dataset.fireState = 'off'
-    canvas.dataset.fireParticleCount = '0'
-    delete canvas.dataset.fireFrame
-    delete canvas.dataset.fireSourceDirection
-    delete canvas.dataset.fireStartup
-    delete canvas.dataset.fireFrontDistance
+    setChangedCanvasDataset(canvas.dataset, 'fireState', 'off')
+    setChangedCanvasDataset(canvas.dataset, 'fireParticleCount', '0')
+    setChangedCanvasDataset(canvas.dataset, 'fireVisualIntensity', '0.000')
+    deleteChangedCanvasDataset(canvas.dataset, 'fireFrame')
+    deleteChangedCanvasDataset(canvas.dataset, 'fireSourceDirection')
+    deleteChangedCanvasDataset(canvas.dataset, 'fireStartup')
+    deleteChangedCanvasDataset(canvas.dataset, 'fireFrontDistance')
   }
 
-  #renderMaterials(materials: readonly ExtractionMaterialReadView[]): void {
-    const liveIds = new Set(materials.map((material) => material.materialInstanceId))
+  #renderMaterials(
+    materials: readonly ExtractionMaterialReadView[],
+    tick: number,
+  ): void {
+    this.#debrisGraphics?.clear()
+    this.#debrisRenderTick = tick
+    this.#debrisMaterialViews.clear()
+    if (this.#lastRulesFireActive) {
+      this.#debrisLifetimeWindow.advance(tick)
+    } else {
+      this.#debrisLifetimeWindow.reset()
+    }
+    const liveIds = this.#liveMaterialIds
+    liveIds.clear()
+    for (const material of materials) {
+      liveIds.add(material.materialInstanceId)
+      this.#debrisMaterialViews.set(material.materialInstanceId, material)
+    }
     for (const [materialInstanceId, visual] of this.#materialVisuals) {
       if (liveIds.has(materialInstanceId)) continue
       visual.image.destroy()
@@ -750,7 +1350,80 @@ export class M2ExtractionScene extends Phaser.Scene {
         this.#paintMaterialMask(visual, material)
         visual.remainingVolume = material.remainingVolume
       }
+      this.#emitMaterialDebris(material, tick)
     }
+    this.#debrisLifetimeWindow.forEachActive(tick, this.#debrisVisitor)
+  }
+
+  #emitMaterialDebris(material: ExtractionMaterialReadView, tick: number): void {
+    const graphics = this.#debrisGraphics
+    if (
+      graphics === null ||
+      !this.#lastRulesFireActive ||
+      material.initialVolume <= 0 ||
+      material.remainingVolume <= 0
+    ) {
+      return
+    }
+    const dissolvedRatio = Math.max(
+      0,
+      Math.min(1, 1 - material.remainingVolume / material.initialVolume),
+    )
+    const frame = deriveM5DebrisFrame(
+      {
+        debrisRatePerSecond: this.#presentation.material.debrisRate,
+        framesPerSecond:
+          this.#options.config.base.parameters.simulation.fixedStepHz,
+        dissolvedRatio,
+        frame: tick,
+        maximumVisible: this.#presentation.performance.particlePoolSize,
+      },
+      this.#debrisFrame,
+    )
+    if (frame.emittedCount === 0) return
+    this.#debrisLifetimeWindow.emit(
+      material.materialInstanceId,
+      tick,
+      frame.emittedCount,
+    )
+  }
+
+  #drawMaterialDebrisSlot(
+    slotIndex: number,
+    ownerId: string,
+    lifeProgress: number,
+    tick: number,
+  ): void {
+    const graphics = this.#debrisGraphics
+    const material = this.#debrisMaterialViews.get(ownerId)
+    if (graphics === null || material === undefined) return
+    const placement = material.placement
+    const content = deriveMaterialContentRectangle(
+      placement,
+      material.composition,
+    )
+    const phase = this.#pearlRenderer.phaseForId(
+      `material-debris:${material.materialInstanceId}`,
+    )
+    const cosRotation = Math.cos(placement.rotationRadians)
+    const sinRotation = Math.sin(placement.rotationRadians)
+    const emberColor = colorNumber(this.#presentation.fire.ember.color)
+    const charColor = colorNumber(this.#theme.border)
+    const angle = phase + slotIndex * 2.399_963 + tick * 0.025
+    const localX =
+      Math.cos(angle) * content.width * (0.34 + lifeProgress * 0.16)
+    const localY =
+      Math.sin(angle) * content.height * 0.34 -
+      lifeProgress * content.height * 0.32
+    const x =
+      content.center.x + localX * cosRotation - localY * sinRotation
+    const y =
+      content.center.y + localX * sinRotation + localY * cosRotation
+    graphics.fillStyle(
+      slotIndex % 3 === 0 ? emberColor : charColor,
+      0.72 * (1 - lifeProgress),
+    )
+    graphics.fillCircle(x, y, 0.9 + ((slotIndex * 7) % 4) * 0.38)
   }
 
   #createMaterialVisual(material: ExtractionMaterialReadView): MaterialVisual {
@@ -760,19 +1433,38 @@ export class M2ExtractionScene extends Phaser.Scene {
     if (definition?.appearancePath === undefined) {
       throw new Error(`M2_MATERIAL_APPEARANCE_MISSING:${material.materialDefinitionId}`)
     }
+    const textureSize =
+      EXTRACTION_COMPOSITION_GRID_SIZE * this.#materialMaskConfig.maskScale
     const texture = this.textures.createCanvas(
       materialTextureKey(material.materialInstanceId),
-      64,
-      64,
+      textureSize,
+      textureSize,
     )
     if (texture === null) throw new Error('M2_MATERIAL_TEXTURE_UNAVAILABLE')
     const source = this.textures
       .get(appearanceTextureKey(material.materialDefinitionId))
       .getSourceImage()
-    texture.context.clearRect(0, 0, 64, 64)
-    texture.context.drawImage(source as CanvasImageSource, 0, 0, 64, 64)
-    const sourcePixels = texture.context.getImageData(0, 0, 64, 64)
-    const outputPixels = texture.context.createImageData(64, 64)
+    texture.context.clearRect(0, 0, textureSize, textureSize)
+    texture.context.drawImage(
+      source as CanvasImageSource,
+      0,
+      0,
+      EXTRACTION_COMPOSITION_GRID_SIZE,
+      EXTRACTION_COMPOSITION_GRID_SIZE,
+    )
+    const sourceRgba = texture.context
+      .getImageData(
+        0,
+        0,
+        EXTRACTION_COMPOSITION_GRID_SIZE,
+        EXTRACTION_COMPOSITION_GRID_SIZE,
+      )
+      .data.slice()
+    texture.context.clearRect(0, 0, textureSize, textureSize)
+    const outputPixels = texture.context.createImageData(
+      textureSize,
+      textureSize,
+    )
     const image = this.add
       .image(material.placement.center.x, material.placement.center.y, texture.key)
       .setDisplaySize(material.placement.width, material.placement.height)
@@ -781,7 +1473,7 @@ export class M2ExtractionScene extends Phaser.Scene {
     const visual: MaterialVisual = {
       texture,
       image,
-      sourcePixels,
+      sourceRgba,
       outputPixels,
       remainingVolume: Number.NaN,
     }
@@ -794,27 +1486,77 @@ export class M2ExtractionScene extends Phaser.Scene {
     visual: MaterialVisual,
     material: ExtractionMaterialReadView,
   ): void {
-    const source = visual.sourcePixels.data
-    const output = visual.outputPixels.data
-    for (let index = 0; index < material.remainingCellVolumes.length; index += 1) {
-      const offset = index * 4
-      const initial = material.initialCellVolumes[index] ?? 0
-      const remaining = material.remainingCellVolumes[index] ?? 0
-      const ratio = initial <= 1e-12 ? 0 : Math.max(0, Math.min(1, remaining / initial))
-      output[offset] = source[offset]!
-      output[offset + 1] = source[offset + 1]!
-      output[offset + 2] = source[offset + 2]!
-      output[offset + 3] = Math.round(source[offset + 3]! * ratio)
-    }
+    renderM5MaterialMask(
+      {
+        sourceRgba: visual.sourceRgba,
+        initialCellVolumes: material.initialCellVolumes,
+        remainingCellVolumes: material.remainingCellVolumes,
+      },
+      this.#materialMaskConfig,
+      visual.outputPixels.data,
+    )
     visual.texture.context.putImageData(visual.outputPixels, 0, 0)
     visual.texture.refresh()
   }
 
-  #renderPearls(view: ExtractionSimulationReadView): void {
+  #createPearlSpritePool(): M5PearlSpritePool<
+    Phaser.GameObjects.Graphics,
+    Phaser.GameObjects.Image
+  > {
+    const host: M5PearlSpritePoolHost<
+      Phaser.GameObjects.Graphics,
+      Phaser.GameObjects.Image
+    > = {
+      hasTexture: (key) => this.textures.exists(key),
+      createTexture: (key, size, draw) => {
+        const graphics = this.make.graphics({ x: 0, y: 0 })
+        try {
+          draw(graphics, size / 2)
+          graphics.generateTexture(key, size, size)
+        } finally {
+          graphics.destroy()
+        }
+      },
+      createSprite: (textureKey, depth) =>
+        this.add.image(0, 0, textureKey).setDepth(depth).setVisible(false),
+      setSpritePose: (sprite, x, y, rotation, alpha, scale) => {
+        sprite
+          .setPosition(x, y)
+          .setRotation(rotation)
+          .setAlpha(alpha)
+          .setScale(scale)
+          .setVisible(true)
+      },
+      hideSprite: (sprite) => {
+        sprite.setVisible(false)
+      },
+      destroySprite: (sprite) => sprite.destroy(),
+      removeTexture: (key) => {
+        if (this.textures.exists(key)) this.textures.remove(key)
+      },
+    }
+    const effectCapacity = this.#presentation.performance
+    return new M5PearlSpritePool(host, this.#pearlRenderer, {
+      textureNamespace: 'm5-player-pearl',
+      capacity: effectCapacity.pearlPoolSize,
+      growthCapacity: effectCapacity.pearlPoolSize,
+      depth: 4,
+    })
+  }
+
+  #renderPearls(
+    view: ExtractionSimulationReadView,
+    timestampMilliseconds: number,
+  ): void {
     const graphics = this.#pearlGraphics
-    if (graphics === null) return
+    const pearlSpritePool = this.#pearlSpritePool
+    if (graphics === null || pearlSpritePool === null) return
     graphics.clear()
-    const pearlById = new Map(view.pearls.map((pearl) => [pearl.pearlId, pearl]))
+    this.#pearlRenderer.beginFrame()
+    pearlSpritePool.beginFrame()
+    const pearlById = this.#pearlById
+    pearlById.clear()
+    for (const pearl of view.pearls) pearlById.set(pearl.pearlId, pearl)
     for (const interaction of view.activeInteractions) {
       const pearlA = pearlById.get(interaction.pearlAId)
       const pearlB = pearlById.get(interaction.pearlBId)
@@ -828,16 +1570,25 @@ export class M2ExtractionScene extends Phaser.Scene {
       )
     }
     let caughtIndex = 0
-    for (const pearl of view.pearls) {
+    for (let index = 0; index < view.pearls.length; index += 1) {
+      const pearl = view.pearls[index]!
+      const standardRadius =
+        this.#pearlStandardRadius.get(pearl.pearlType) ?? pearl.radius
+      pearlSpritePool.ensure(index, {
+        pearlId: pearl.pearlId,
+        pearlType: pearl.pearlType,
+        sourceMaterialDefinitionId: pearl.sourceMaterialDefinitionId,
+        radius: standardRadius,
+      })
       if (pearl.state === 'active') {
-        this.#drawPearl(
-          graphics,
-          pearl.pearlType,
-          pearl.sourceMaterialDefinitionId,
+        pearlSpritePool.render(
+          index,
           pearl.position.x,
           pearl.position.y,
           pearl.radius,
           1,
+          timestampMilliseconds,
+          true,
         )
         if (pearl.shield.active) {
           graphics.lineStyle(3, colorNumber(this.#theme.focus), 0.82)
@@ -865,78 +1616,19 @@ export class M2ExtractionScene extends Phaser.Scene {
           view.collector.center.y +
           view.collector.height * 0.18 -
           row * 5
-        this.#drawPearl(
-          graphics,
-          pearl.pearlType,
-          pearl.sourceMaterialDefinitionId,
+        pearlSpritePool.render(
+          index,
           x,
           y,
           Math.max(3, Math.min(7, pearl.radius * 0.24)),
           0.86,
+          timestampMilliseconds,
+          false,
         )
         caughtIndex += 1
       }
     }
-  }
-
-  #drawPearl(
-    graphics: Phaser.GameObjects.Graphics,
-    pearlType: PearlType,
-    sourceMaterialDefinitionId: string,
-    x: number,
-    y: number,
-    radius: number,
-    alpha: number,
-  ): void {
-    const config = this.#options.config.gameplay.pearlTypes.find(
-      (candidate) => candidate.pearlType === pearlType,
-    )
-    const material = this.#options.config.base.materials.find(
-      (candidate) => candidate.id === sourceMaterialDefinitionId,
-    )
-    const fillColor = colorNumber(
-      pearlType === 'medicinalLiquid'
-        ? material?.pearlColor ?? config?.color ?? '#FFFFFF'
-        : config?.color ?? '#FFFFFF',
-    )
-    const outlineColor = colorNumber(config?.outlineColor ?? '#FFFFFF')
-    if (pearlType === 'medicinalLiquid') {
-      let outline = this.#dropletOutlines.get(radius)
-      if (outline === undefined) {
-        outline = createDropletOutline(radius, M2_DROPLET_PRESENTATION.droplet)
-        this.#dropletOutlines.set(radius, outline)
-      }
-      drawDroplet(graphics, x, y, radius, outline, {
-        ...M2_DROPLET_PRESENTATION,
-        fillColor,
-        fillAlpha: M2_DROPLET_PRESENTATION.fillAlpha * alpha,
-        outlineColor,
-        outlineAlpha: M2_DROPLET_PRESENTATION.outlineAlpha * alpha,
-      })
-      return
-    }
-
-    const points = pearlType === 'slag'
-      ? [
-          new Phaser.Math.Vector2(x - radius * 0.82, y - radius * 0.18),
-          new Phaser.Math.Vector2(x - radius * 0.38, y - radius * 0.82),
-          new Phaser.Math.Vector2(x + radius * 0.48, y - radius * 0.66),
-          new Phaser.Math.Vector2(x + radius * 0.88, y + radius * 0.08),
-          new Phaser.Math.Vector2(x + radius * 0.24, y + radius * 0.82),
-          new Phaser.Math.Vector2(x - radius * 0.68, y + radius * 0.56),
-        ]
-      : [
-          new Phaser.Math.Vector2(x, y - radius),
-          new Phaser.Math.Vector2(x + radius * 0.72, y),
-          new Phaser.Math.Vector2(x, y + radius),
-          new Phaser.Math.Vector2(x - radius * 0.72, y),
-        ]
-    graphics.fillStyle(fillColor, 0.92 * alpha)
-    graphics.fillPoints(points, true, true)
-    graphics.lineStyle(2, outlineColor, 0.8 * alpha)
-    graphics.strokePoints(points, true, true)
-    graphics.fillStyle(0xffffff, 0.28 * alpha)
-    graphics.fillCircle(x - radius * 0.22, y - radius * 0.24, radius * 0.16)
+    pearlSpritePool.endFrame()
   }
 
   #renderCollector(view: ExtractionSimulationReadView): void {
@@ -954,125 +1646,497 @@ export class M2ExtractionScene extends Phaser.Scene {
     graphics.fillRoundedRect(left + 12, top + 9, collector.width - 24, 12, 6)
   }
 
-  #consumeDomainEvents(events: readonly DomainEvent[]): void {
-    const simulation = this.#runtime.snapshot().simulation
+  #advancePresentation(
+    runtime: M2GameplayRuntimeSnapshot,
+    timestampMilliseconds: number,
+  ): void {
+    const application = runtime.application
+    const sessionId = application.sessionId
+    if (!application.isSpraying) this.#forceRuleFireOff = false
+    const rulesFireActive =
+      !this.#forceRuleFireOff &&
+      !application.paused &&
+      (application.status === 'ready' || application.status === 'extracting') &&
+      application.isSpraying &&
+      runtime.simulation.effectiveFireSource !== null
+
+    if (rulesFireActive !== this.#lastRulesFireActive) {
+      this.#resetTransientEmission(timestampMilliseconds)
+    }
+
+    if (application.paused) {
+      this.#presentationLifecycle.pauseTimeline(
+        sessionId,
+        timestampMilliseconds,
+      )
+    } else {
+      this.#presentationLifecycle.resumeTimeline(
+        sessionId,
+        timestampMilliseconds,
+      )
+    }
+
+    if (application.paused || application.status === 'completed') {
+      this.#presentationSnapshot =
+        this.#presentationLifecycle.hardClearFire(
+          sessionId,
+          timestampMilliseconds,
+        ) ?? this.#presentationSnapshot
+    } else if (application.status === 'failed') {
+      this.#presentationSnapshot =
+        this.#presentationLifecycle.beginFailureConversion(
+          sessionId,
+          timestampMilliseconds,
+        ) ?? this.#presentationSnapshot
+    } else if (rulesFireActive !== this.#lastRulesFireActive) {
+      this.#presentationSnapshot =
+        this.#presentationLifecycle.setRuleFireActive(
+          sessionId,
+          rulesFireActive,
+          timestampMilliseconds,
+        ) ?? this.#presentationSnapshot
+    }
+    this.#presentationSnapshot =
+      this.#presentationLifecycle.advance(sessionId, timestampMilliseconds) ??
+      this.#presentationSnapshot
+    this.#audioDirector.setFireActive(
+      rulesFireActive,
+      timestampMilliseconds,
+    )
+    this.#lastRulesFireActive = rulesFireActive
+  }
+
+  #resetPresentationSession(sessionId: string): void {
+    this.#restoreFailureSourceVisuals()
+    this.#presentationSessionId = sessionId
+    this.#presentationSnapshot =
+      this.#presentationLifecycle.resetSession(sessionId)
+    this.#failurePresentation.resetSession(sessionId)
+    this.#lastRulesFireActive = false
+    this.#forceRuleFireOff = false
+    this.#requestedSprayingProjection = null
+    this.#audioDirector.reset()
+    this.#effectPool.reset()
+    this.#resetTransientEmission()
+    this.#pearlRenderer.resetSession()
+    this.#pearlSpritePool?.reset()
+    this.#lastRenderedTick = Number.NEGATIVE_INFINITY
+    this.#lastSnapshotTime = Number.NEGATIVE_INFINITY
+    this.#lastEventTypes = []
+    this.#presentationFlowView = null
+    this.#fireOcclusionInput = null
+    this.#fireOcclusionTick = Number.NEGATIVE_INFINITY
+    this.#debrisGraphics?.clear()
+    this.#effectGraphics?.clear()
+    this.#localLightGraphics?.clear()
+    this.#failureGraphics?.clear()
+    const canvas = this.game.canvas
+    deleteChangedCanvasDataset(canvas.dataset, 'failureResultX')
+    deleteChangedCanvasDataset(canvas.dataset, 'failureResultY')
+    deleteChangedCanvasDataset(canvas.dataset, 'failureLogicalCenter')
+    deleteChangedCanvasDataset(canvas.dataset, 'failureSourceCount')
+    if (this.#fireImage !== null) this.#disableFirePresentation()
+  }
+
+  #resetTransientEmission(timestampMilliseconds = Number.NaN): void {
+    this.#emberRateAccumulator.reset(timestampMilliseconds)
+    this.#emberEmissionSequence = 0
+    this.#debrisLifetimeWindow.reset()
+  }
+
+  #renderLocalLight(fireSize: number): void {
+    const graphics = this.#localLightGraphics
+    if (graphics === null) return
+    const intensity = drawM5LocalLight(
+      graphics,
+      this.#presentation,
+      this.#lastRenderedFireSource,
+      fireSize,
+      this.#presentationSnapshot.fire.visualIntensity,
+    )
+    const canvas = this.game.canvas
+    setChangedCanvasDataset(
+      canvas.dataset,
+      'localLightIntensity',
+      intensity.toFixed(3),
+    )
+  }
+
+  #renderFailurePresentation(view: ExtractionSimulationReadView): void {
+    const graphics = this.#failureGraphics
+    if (graphics === null) return
+    graphics.clear()
+    const failure = this.#presentationSnapshot.failure
+    if (failure.state === 'idle') {
+      this.#restoreFailureSourceVisuals()
+      return
+    }
+    const sessionId = this.#presentationSessionId
+    if (sessionId === null) return
+    const { logicalWidth, logicalHeight } =
+      this.#options.config.gameplay.prototype
+    this.#failurePresentation.captureSources(sessionId, {
+      logicalWidth,
+      logicalHeight,
+      materials: view.materials,
+      pearls: view.pearls,
+      collector: view.collector,
+    })
+    const frame = this.#failurePresentation.frame(sessionId, failure.progress)
+    if (frame === null) return
+    this.#applyFailureSourceVisuals(frame)
+
+    const danger = colorNumber(this.#theme.danger)
+    const slag = colorNumber(
+      this.#options.config.gameplay.pearlTypes.find(
+        (candidate) => candidate.pearlType === 'slag',
+      )?.color ?? this.#theme.border,
+    )
+    const visualBySourceId = new Map(
+      frame.sourceVisuals.map((visual) => [visual.sourceId, visual]),
+    )
+    for (const source of frame.sources) {
+      const visual = visualBySourceId.get(source.sourceId)
+      if (visual === undefined || !visual.visible) continue
+      if (source.kind !== 'material') {
+        graphics.fillStyle(colorNumber(this.#theme.background), visual.alpha)
+        graphics.fillCircle(
+          source.origin.x,
+          source.origin.y,
+          Math.max(3, source.radius),
+        )
+      }
+      graphics.lineStyle(3, danger, visual.alpha * 0.78)
+      graphics.strokeCircle(
+        source.origin.x,
+        source.origin.y,
+        Math.max(4, source.radius),
+      )
+    }
+    graphics.fillStyle(slag, 0.9)
+    for (const particle of frame.particles) {
+      const radius = particle.radius
+      graphics.fillTriangle(
+        particle.position.x,
+        particle.position.y - radius,
+        particle.position.x + radius * 0.86,
+        particle.position.y + radius * 0.72,
+        particle.position.x - radius * 0.72,
+        particle.position.y + radius * 0.58,
+      )
+    }
+    if (frame.result.visible) {
+      const position = frame.result.position
+      graphics.fillStyle(slag, 0.96)
+      graphics.fillEllipse(
+        position.x,
+        position.y,
+        frame.result.radius * 2,
+        frame.result.radius * 1.45,
+      )
+      graphics.lineStyle(2, colorNumber(this.#theme.border), 0.82)
+      graphics.strokeEllipse(
+        position.x,
+        position.y,
+        frame.result.radius * 2,
+        frame.result.radius * 1.45,
+      )
+      const canvas = this.game.canvas
+      setChangedCanvasDataset(
+        canvas.dataset,
+        'failureResultX',
+        position.x.toFixed(3),
+      )
+      setChangedCanvasDataset(
+        canvas.dataset,
+        'failureResultY',
+        position.y.toFixed(3),
+      )
+      setChangedCanvasDataset(
+        canvas.dataset,
+        'failureLogicalCenter',
+        `${(logicalWidth / 2).toFixed(3)},${(logicalHeight / 2).toFixed(3)}`,
+      )
+    }
+    setChangedCanvasDataset(
+      this.game.canvas.dataset,
+      'failureSourceCount',
+      String(frame.sources.length),
+    )
+  }
+
+  #applyFailureSourceVisuals(frame: M5FailureFrame): void {
+    const visualsById = new Map(
+      frame.sourceVisuals.map((visual) => [visual.sourceId, visual]),
+    )
+    for (const [materialInstanceId, visual] of this.#materialVisuals) {
+      const failureVisual = visualsById.get(`material:${materialInstanceId}`)
+      if (failureVisual === undefined) continue
+      visual.image
+        .setTint(colorNumber(this.#theme.background))
+        .setAlpha(failureVisual.alpha)
+        .setVisible(failureVisual.visible)
+    }
+    this.#pearlGraphics?.clear()
+    this.#pearlSpritePool?.reset()
+  }
+
+  #restoreFailureSourceVisuals(): void {
+    for (const visual of this.#materialVisuals.values()) {
+      visual.image.clearTint().setAlpha(1).setVisible(true)
+    }
+  }
+
+  #consumeDomainEvents(
+    events: readonly DomainEvent[],
+    simulation: ExtractionSimulationReadView,
+    timestampMilliseconds: number,
+  ): void {
     for (const event of events) {
-      if (event.type === 'PearlBorn') {
-        const pearl = simulation.pearls.find(
-          (candidate) => candidate.pearlId === event.pearlId,
-        )
-        if (pearl !== undefined) {
-          this.#eventSparks.push({
-            x: pearl.position.x,
-            y: pearl.position.y,
-            life: 8,
-            color: 0x78e6d0,
-          })
+      if (event.type === 'ExtractionFailed') {
+        const sessionId = this.#presentationSessionId
+        if (sessionId !== null) {
+          this.#presentationLifecycle.beginFailureConversion(
+            sessionId,
+            timestampMilliseconds,
+          )
         }
-      } else if (event.type === 'PearlCaught') {
-        this.#eventSparks.push({
-          x: simulation.collector.center.x,
-          y: simulation.collector.center.y,
-          life: 12,
-          color: colorNumber(this.#theme.accent),
-        })
-      } else if (event.type === 'PearlShieldActivated') {
-        const pearl = simulation.pearls.find(
-          (candidate) => candidate.pearlId === event.pearlId,
-        )
-        if (pearl !== undefined) {
-          this.#eventSparks.push({
-            x: pearl.position.x,
-            y: pearl.position.y,
-            life: 11,
-            color: colorNumber(this.#theme.focus),
-          })
+      }
+      for (const action of mapM5DomainEvent(event)) {
+        if (action.audioCue !== undefined) {
+          this.#audioDirector.emit(action.audioCue, timestampMilliseconds)
         }
-      } else if (event.type === 'PearlInteractionStarted') {
-        const pearlA = simulation.pearls.find(
-          (candidate) => candidate.pearlId === event.pearlAId,
-        )
-        const pearlB = simulation.pearls.find(
-          (candidate) => candidate.pearlId === event.pearlBId,
-        )
-        if (pearlA !== undefined && pearlB !== undefined) {
-          this.#eventSparks.push({
-            x: (pearlA.position.x + pearlB.position.x) * 0.5,
-            y: (pearlA.position.y + pearlB.position.y) * 0.5,
-            life: 15,
-            color: colorNumber(this.#theme.danger),
-          })
+        if (action.cameraCue !== undefined) {
+          this.#shakeCamera(action.cameraCue)
         }
-      } else if (event.type === 'PearlDamaged' || event.type === 'PearlBurned') {
-        const pearl = simulation.pearls.find(
-          (candidate) => candidate.pearlId === event.pearlId,
+        const anchor = this.#resolveEffectAnchor(action.anchor, simulation)
+        if (anchor === null) continue
+        const duration =
+          effectDurationSeconds(action.effect, this.#presentation) * 1_000
+        if (duration <= 0) continue
+        this.#effectPool.spawn(
+          action.effect,
+          anchor,
+          timestampMilliseconds,
+          duration,
         )
-        if (pearl !== undefined) {
-          this.#eventSparks.push({
-            x: pearl.position.x,
-            y: pearl.position.y,
-            life: event.type === 'PearlBurned' ? 14 : 7,
-            color: colorNumber(this.#theme.danger),
-          })
-        }
-      } else if (event.type === 'ExtractionFailed') {
-        this.#eventSparks.push({
-          x: simulation.collector.center.x,
-          y: simulation.collector.center.y - 80,
-          life: 18,
-          color: colorNumber(this.#theme.danger),
-        })
-      } else if (event.type === 'CanFinish') {
-        this.#eventSparks.push({
-          x: simulation.collector.center.x,
-          y: simulation.collector.center.y - 30,
-          life: 18,
-          color: colorNumber(this.#theme.focus),
-        })
       }
     }
   }
 
-  #renderEffects(): void {
-    const graphics = this.#effectGraphics
-    if (graphics === null) return
-    graphics.clear()
-    for (let index = this.#eventSparks.length - 1; index >= 0; index -= 1) {
-      const spark = this.#eventSparks[index]!
-      const alpha = Math.min(1, spark.life / 10)
-      graphics.lineStyle(3, spark.color, alpha)
-      graphics.strokeCircle(spark.x, spark.y, 4 + (18 - spark.life) * 2)
-      spark.life -= 1
-      if (spark.life <= 0) this.#eventSparks.splice(index, 1)
+  #resolveEffectAnchor(
+    anchor: M5EffectAnchor,
+    simulation: ExtractionSimulationReadView,
+  ):
+    | Readonly<{
+        x: number
+        y: number
+        secondaryX?: number
+        secondaryY?: number
+      }>
+    | null {
+    if (anchor.kind === 'collector') {
+      return {
+        x: simulation.collector.center.x,
+        y: simulation.collector.center.y,
+      }
+    }
+    if (anchor.kind === 'viewport') {
+      return {
+        x: this.#options.config.gameplay.prototype.logicalWidth / 2,
+        y: this.#options.config.gameplay.prototype.logicalHeight / 2,
+      }
+    }
+    const pearlA = simulation.pearls.find(
+      (candidate) =>
+        candidate.pearlId ===
+        (anchor.kind === 'pearl' ? anchor.pearlId : anchor.pearlAId),
+    )
+    if (pearlA === undefined) return null
+    if (anchor.kind === 'pearl') {
+      return { x: pearlA.position.x, y: pearlA.position.y }
+    }
+    const pearlB = simulation.pearls.find(
+      (candidate) => candidate.pearlId === anchor.pearlBId,
+    )
+    if (pearlB === undefined) return null
+    return {
+      x: pearlA.position.x,
+      y: pearlA.position.y,
+      secondaryX: pearlB.position.x,
+      secondaryY: pearlB.position.y,
     }
   }
 
-  #publishCanvasMetadata(snapshot: M2Snapshot): void {
-    const canvas = this.game.canvas
-    canvas.dataset.game = 'liandan'
-    canvas.dataset.gameState = snapshot.ready ? 'ready' : 'loading'
-    canvas.dataset.scene = snapshot.scene
-    canvas.dataset.logicalWidth = String(snapshot.logicalWidth)
-    canvas.dataset.logicalHeight = String(snapshot.logicalHeight)
-    canvas.dataset.phaserVersion = Phaser.VERSION
-    canvas.dataset.sessionId = snapshot.sessionId
-    canvas.dataset.domainStatus = snapshot.status
-    canvas.dataset.tick = String(snapshot.tick)
-    canvas.dataset.equippedFireSourceId =
-      snapshot.equippedFireSourceId ?? ''
-    canvas.dataset.isSpraying = String(snapshot.isSpraying)
-    canvas.dataset.flameThrustEnabled = String(snapshot.flameThrustEnabled)
-    canvas.dataset.canFinish = String(snapshot.canFinish)
-    canvas.dataset.lossWarningLevel = String(snapshot.lossWarningLevel)
-    canvas.dataset.flowGeneration = String(snapshot.flowGeneration)
-    canvas.dataset.fireRenderer = 'heat-field'
-    canvas.dataset.pearlRenderer = 'typed-m3'
-    canvas.dataset.activePearlCount = String(snapshot.activePearlCount)
-    canvas.dataset.fireOcclusion = 'precise-geometry'
-    canvas.dataset.remainingMaterialCells = String(
-      snapshot.remainingMaterialCellCount,
+  #shakeCamera(cue: M5CameraCue): void {
+    const camera = this.cameras.main
+    const config = this.#presentation.camera
+    const strength =
+      cue === 'normalCatch'
+        ? config.normalCatchStrength
+        : cue === 'damage'
+          ? config.damageStrength
+          : cue === 'fight'
+            ? config.fightStrength
+            : cue === 'warningTwo'
+              ? config.warningTwoStrength
+              : config.failureStrength
+    const motionMultiplier = this.#reducedMotion
+      ? this.#presentation.accessibility.reducedMotionCameraMultiplier
+      : 1
+    const maximumDimension = Math.max(camera.width, camera.height, 1)
+    const intensity =
+      (strength * motionMultiplier * config.maxOffsetPixels) / maximumDimension
+    if (intensity <= 0) return
+    camera.shake(config.durationSeconds * 1_000, intensity, true)
+  }
+
+  #renderEffects(timestampMilliseconds: number): void {
+    const graphics = this.#effectGraphics
+    if (graphics === null) return
+    graphics.clear()
+    this.#effectPool.forEachActive(timestampMilliseconds, this.#effectVisitor)
+  }
+
+  #drawEffect(
+    kind: M5EffectKind,
+    x: number,
+    y: number,
+    secondaryX: number,
+    secondaryY: number,
+    progress: number,
+    slotIndex: number,
+  ): void {
+    const graphics = this.#effectGraphics
+    if (graphics === null) return
+    drawM5Effect(
+      graphics,
+      this.#theme,
+      this.#options.config.gameplay.prototype.logicalWidth,
+      this.#options.config.gameplay.prototype.logicalHeight,
+      kind,
+      x,
+      y,
+      secondaryX,
+      secondaryY,
+      progress,
+      slotIndex,
     )
-    canvas.dataset.simulationContentFingerprint =
-      snapshot.simulationContentFingerprint
+  }
+
+  #publishCanvasMetadata(snapshot: M2Snapshot): void {
+    const dataset = this.game.canvas.dataset
+    setChangedCanvasDataset(dataset, 'game', 'liandan')
+    setChangedCanvasDataset(
+      dataset,
+      'gameState',
+      snapshot.ready ? 'ready' : 'loading',
+    )
+    setChangedCanvasDataset(dataset, 'scene', snapshot.scene)
+    setChangedCanvasDataset(
+      dataset,
+      'logicalWidth',
+      String(snapshot.logicalWidth),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'logicalHeight',
+      String(snapshot.logicalHeight),
+    )
+    setChangedCanvasDataset(dataset, 'phaserVersion', Phaser.VERSION)
+    setChangedCanvasDataset(dataset, 'sessionId', snapshot.sessionId)
+    setChangedCanvasDataset(dataset, 'domainStatus', snapshot.status)
+    setChangedCanvasDataset(dataset, 'tick', String(snapshot.tick))
+    setChangedCanvasDataset(
+      dataset,
+      'equippedFireSourceId',
+      snapshot.equippedFireSourceId ?? '',
+    )
+    setChangedCanvasDataset(dataset, 'isSpraying', String(snapshot.isSpraying))
+    setChangedCanvasDataset(
+      dataset,
+      'furnaceTemperature',
+      snapshot.furnaceTemperature.toFixed(3),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'flameThrustEnabled',
+      String(snapshot.flameThrustEnabled),
+    )
+    setChangedCanvasDataset(dataset, 'canFinish', String(snapshot.canFinish))
+    setChangedCanvasDataset(
+      dataset,
+      'lossWarningLevel',
+      String(snapshot.lossWarningLevel),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'flowGeneration',
+      String(snapshot.flowGeneration),
+    )
+    setChangedCanvasDataset(dataset, 'fireRenderer', 'heat-field')
+    setChangedCanvasDataset(dataset, 'pearlRenderer', 'm5-formal-sprite-pool')
+    const pearlSpriteDiagnostics = this.#pearlSpritePool?.getDiagnostics()
+    setChangedCanvasDataset(
+      dataset,
+      'pearlSpriteCapacity',
+      String(pearlSpriteDiagnostics?.capacity ?? 0),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'pearlSpriteInitializedCount',
+      String(pearlSpriteDiagnostics?.initializedCount ?? 0),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'pearlSpriteGrowthCount',
+      String(pearlSpriteDiagnostics?.runtimeStorageGrowthCount ?? 0),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'pearlSpriteTextureCount',
+      String(pearlSpriteDiagnostics?.textureCount ?? 0),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'activePearlCount',
+      String(snapshot.activePearlCount),
+    )
+    setChangedCanvasDataset(dataset, 'fireOcclusion', 'precise-geometry')
+    setChangedCanvasDataset(
+      dataset,
+      'remainingMaterialCells',
+      String(snapshot.remainingMaterialCellCount),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'simulationContentFingerprint',
+      snapshot.simulationContentFingerprint,
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'presentationContentFingerprint',
+      snapshot.presentationContentFingerprint,
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'failurePresentationState',
+      snapshot.failurePresentationState,
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'failurePresentationProgress',
+      snapshot.failurePresentationProgress.toFixed(3),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'audioVoiceCount',
+      String(snapshot.audioDiagnostics.activeVoiceCount),
+    )
+    setChangedCanvasDataset(
+      dataset,
+      'effectPoolActive',
+      String(snapshot.effectPoolDiagnostics.activeCount),
+    )
   }
 }

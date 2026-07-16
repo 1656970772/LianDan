@@ -7,6 +7,7 @@ export interface M2GameplaySchemaBundle {
   readonly pearlTypes: JsonSchema
   readonly collector: JsonSchema
   readonly interactions: JsonSchema
+  readonly presentation: JsonSchema
 }
 
 export interface RawM2GameplayConfig {
@@ -16,6 +17,7 @@ export interface RawM2GameplayConfig {
   readonly pearlTypes: RawConfigDocument
   readonly collector: RawConfigDocument
   readonly interactions?: RawConfigDocument
+  readonly presentation: RawConfigDocument
 }
 
 export type M2Vector = Readonly<{ x: number; y: number }>
@@ -40,11 +42,19 @@ export interface NormalizedM2Prototype {
   readonly logicalWidth: number
   readonly logicalHeight: number
   readonly materialPlacement: Readonly<{
-    centerX: number
-    centerY: number
-    size: number
-    offsetPerInstance: M2Vector
-    rotationDegreesPerInstance: number
+    visibleLongEdge: number
+    minimumGap: number
+    usableRegion: Readonly<{
+      left: number
+      top: number
+      right: number
+      bottom: number
+    }>
+    slots: readonly Readonly<{
+      centerX: number
+      centerY: number
+      rotationDegrees: number
+    }>[]
   }>
   readonly availableFireSourceIds: readonly string[]
   readonly initialFireSize: number
@@ -83,16 +93,23 @@ export type NormalizedM2Interaction = Readonly<{
 export interface NormalizedM2FireSource {
   readonly id: string
   readonly nameZh: string
+  readonly descriptionZh: string
   readonly origin: M2Vector
   readonly halfAngleDegrees: number
   readonly minWidth: number
   readonly maxWidth: number
+  readonly baseTemperature: number
+  readonly maximumTemperature: number
+  readonly heatingRatePerSecond: number
+  readonly coolingRatePerSecond: number
+  readonly temperatureCurve: 'linear'
 }
 
 export interface NormalizedM2PearlType {
   readonly id: string
   readonly pearlType: 'medicinalLiquid' | 'slag' | 'impurity'
   readonly standardRadius: number
+  readonly spawnClearance: number
   readonly color: string
   readonly outlineColor: string
   readonly spawnVelocity: Readonly<{
@@ -124,6 +141,123 @@ export interface NormalizedM2Collector {
   readonly maxSpeed: number
 }
 
+export type NormalizedM2PearlPresentationProfile = Readonly<{
+  shape: 'droplet' | 'clump' | 'spike'
+  motion: 'swim' | 'tumble' | 'jitter'
+  surface: 'glossy' | 'rough' | 'smoky'
+}>
+
+export type NormalizedM2AudioProfile = Readonly<{
+  kind: 'tone' | 'noise'
+  attackSeconds: number
+  decaySeconds: number
+  sustainLevel: number
+  releaseSeconds: number
+  frequencyHz: number
+  gain: number
+}>
+
+export interface NormalizedM2PresentationConfig {
+  readonly schemaVersion: 1
+  readonly temperature: Readonly<{
+    warmRatio: number
+    blazingRatio: number
+  }>
+  readonly fire: Readonly<{
+    afterglowSeconds: number
+    emergenceSeconds: number
+    steadyThresholdSeconds: number
+    geometry: Readonly<{
+      sourceWidthScale: number
+      bodyRadiusPixels: number
+      trailRadiusScale: number
+      tipRadiusScale: number
+      swayPixels: number
+      curlPixels: number
+      particleCount: number
+      bodyDensity: number
+      trailDensity: number
+    }>
+    core: Readonly<{ color: string; alpha: number }>
+    body: Readonly<{ color: string; alpha: number }>
+    outer: Readonly<{ color: string; alpha: number }>
+    ember: Readonly<{ color: string; alpha: number }>
+    emberRate: number
+  }>
+  readonly material: Readonly<{
+    maskScale: number
+    edgeFeatherPixels: number
+    heatEdgeWidthPixels: number
+    charAlpha: number
+    debrisRate: number
+    debrisLifetimeSeconds: number
+  }>
+  readonly pearls: Readonly<{
+    medicinalLiquid: NormalizedM2PearlPresentationProfile
+    slag: NormalizedM2PearlPresentationProfile
+    impurity: NormalizedM2PearlPresentationProfile
+  }>
+  readonly failure: Readonly<{
+    shatteringStartRatio: number
+    gatheringStartRatio: number
+    flyingStartRatio: number
+    shardsPerSource: number
+    maximumParticleCount: number
+    scatterRadiusPixels: number
+    particleRadiusPixels: number
+    resultRadiusPixels: number
+    furnaceBottomAnchor: Readonly<{ xRatio: number; yRatio: number }>
+    resultAnchor: Readonly<{ xRatio: number; yRatio: number }>
+  }>
+  readonly effects: Readonly<{
+    shieldDurationSeconds: number
+    damageDurationSeconds: number
+    steamDurationSeconds: number
+    warningOneDurationSeconds: number
+    warningTwoDurationSeconds: number
+    failureDurationSeconds: number
+  }>
+  readonly camera: Readonly<{
+    normalCatchStrength: number
+    damageStrength: number
+    fightStrength: number
+    warningTwoStrength: number
+    failureStrength: number
+    durationSeconds: number
+    maxOffsetPixels: number
+  }>
+  readonly audio: Readonly<{
+    initiallyMuted: boolean
+    defaultVolume: number
+    mergeWindowMs: number
+    mergeGain: number
+    maxVoices: number
+    profiles: Readonly<{
+      fireStart: NormalizedM2AudioProfile
+      fireLoop: NormalizedM2AudioProfile
+      fireStop: NormalizedM2AudioProfile
+      pearlCaught: NormalizedM2AudioProfile
+      pearlShield: NormalizedM2AudioProfile
+      pearlDamaged: NormalizedM2AudioProfile
+      interaction: NormalizedM2AudioProfile
+      warningOne: NormalizedM2AudioProfile
+      warningTwo: NormalizedM2AudioProfile
+      failure: NormalizedM2AudioProfile
+    }>
+  }>
+  readonly accessibility: Readonly<{
+    reducedMotionFailureDurationSeconds: number
+    reducedMotionCameraMultiplier: number
+  }>
+  readonly performance: Readonly<{
+    particlePoolSize: number
+    steamPoolSize: number
+    pearlPoolSize: number
+    effectPoolInitialCapacity: number
+    effectPoolMaximumCapacity: number
+  }>
+}
+
 export interface NormalizedM2GameplayConfig {
   readonly schemaVersion: 1
   readonly prototype: NormalizedM2Prototype
@@ -137,4 +271,5 @@ export interface NormalizedM2Config {
   readonly schemaVersion: 1
   readonly base: NormalizedConfig
   readonly gameplay: NormalizedM2GameplayConfig
+  readonly presentation: NormalizedM2PresentationConfig
 }

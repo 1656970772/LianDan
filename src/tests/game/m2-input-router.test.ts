@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ApplicationControlDraft } from '../../application/index.ts'
 import { createM2InputRouter } from '../../game/extraction/input-router.ts'
 
 class FakeHtmlElement extends EventTarget {
@@ -42,9 +43,10 @@ class FakeWindow extends EventTarget {}
 class FakeDocument extends EventTarget {
   readonly defaultView = new FakeWindow()
   visibilityState: DocumentVisibilityState = 'visible'
+  focused = true
 
   hasFocus(): boolean {
-    return true
+    return this.focused
   }
 }
 
@@ -67,14 +69,21 @@ function pointerEvent(
 function createHarness(
   canStartSpraying = true,
   coordinateBounds = { left: 0, top: 0, width: 160, height: 90 },
+  lifecycle = {
+    hasFocus: true,
+    visibilityState: 'visible' as DocumentVisibilityState,
+  },
 ) {
   const document = new FakeDocument()
+  document.focused = lifecycle.hasFocus
+  document.visibilityState = lifecycle.visibilityState
   const stage = new FakeHtmlElement()
   const coordinateSurface = new FakeHtmlElement(coordinateBounds)
   stage.ownerDocument = document
   coordinateSurface.ownerDocument = document
   const spraying: boolean[] = []
   const controls: string[] = []
+  const capturedControls: ApplicationControlDraft[] = []
   const onFireDirection = vi.fn()
   const handle = createM2InputRouter({
     stage: stage as unknown as HTMLElement,
@@ -93,7 +102,10 @@ function createHarness(
     onSpraying: (value) => spraying.push(value),
     onFireSize: vi.fn(),
     onContainerAxis: vi.fn(),
-    onControl: (control) => controls.push(control.type),
+    onControl: (control) => {
+      controls.push(control.type)
+      capturedControls.push(control)
+    },
   })
   return {
     document,
@@ -102,6 +114,7 @@ function createHarness(
     window: document.defaultView,
     spraying,
     controls,
+    capturedControls,
     onFireDirection,
     handle,
   }
@@ -124,6 +137,24 @@ afterEach(() => {
 })
 
 describe('M2 输入路由喷火持有状态', () => {
+  it('初始 hidden 且未聚焦时主动发送一次完整生命周期快照', () => {
+    const harness = createHarness(
+      true,
+      { left: 0, top: 0, width: 160, height: 90 },
+      { hasFocus: false, visibilityState: 'hidden' },
+    )
+
+    expect(harness.capturedControls).toEqual([
+      {
+        type: 'VisibilityChanged',
+        payload: {
+          lifecycleSnapshot: { hasFocus: false, visibilityState: 'hidden' },
+        },
+      },
+    ])
+    harness.handle.destroy()
+  })
+
   it('用实际 canvas 而不是外层 stage 映射非等宽 letterbox 坐标', () => {
     const harness = createHarness(true, {
       left: 20,

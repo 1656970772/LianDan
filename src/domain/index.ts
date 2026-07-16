@@ -8,6 +8,7 @@ export type { DomainEvent } from './events.ts'
 export {
   applyRuleCommand,
   addMaterialServingFromBatch,
+  advanceFurnaceTemperature,
   createDomainState,
   deriveActivePearlCount,
   deriveCanFinish,
@@ -28,6 +29,8 @@ export type {
   DomainStatus,
   ExtractionFailureResult,
   ExtractionSettlementRules,
+  FurnaceFireSourceRule,
+  FurnaceTemperatureCurve,
   InventoryBatchRule,
   MaterialInstance,
   LossWarningLevel,

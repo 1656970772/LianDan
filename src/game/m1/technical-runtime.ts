@@ -306,7 +306,18 @@ export class M1TechnicalRuntime {
       maxCatchUpSteps: simulation.maxCatchUpSteps,
     })
     const rules: PrototypeRules = {
+      fixedDeltaSeconds: 1 / simulation.fixedStepHz,
       availableFireSourceIds: [`m1-${this.#scenario.metadata.id}`],
+      fireSources: [
+        {
+          id: `m1-${this.#scenario.metadata.id}`,
+          baseTemperature: 8,
+          maximumTemperature: 100,
+          heatingRatePerSecond: 24,
+          coolingRatePerSecond: 10,
+          temperatureCurve: 'linear',
+        },
+      ],
       initialFireSize: Math.min(100, this.#scenario.source.width),
       initialFireDirection: { ...this.#scenario.source.direction },
       inventoryBatches: [],

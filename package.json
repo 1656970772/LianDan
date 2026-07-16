@@ -17,6 +17,8 @@
     "generate:m4-assets": "tsx scripts/generate-m4-material-assets.ts",
     "test:e2e": "playwright test",
     "perf": "npm run validate:config && npm run build && tsx scripts/run-perf-scenario.ts",
+    "perf:m5": "tsx scripts/run-m5-visual-perf.ts",
+    "evidence:m5": "tsx scripts/run-m5-visual-evidence.ts",
     "build": "vite build",
     "preview": "vite preview",
     "check": "npm run typecheck && npm run test && npm run validate:config && npm run validate:assets && npm run build"

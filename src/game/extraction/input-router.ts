@@ -221,6 +221,20 @@ export function createM2InputRouter(
   window.addEventListener('focus', onFocus)
   document.addEventListener('visibilitychange', onVisibilityChanged)
 
+  const initialLifecycleSnapshot = lifecycleSnapshot(document)
+  if (
+    !initialLifecycleSnapshot.hasFocus ||
+    initialLifecycleSnapshot.visibilityState === 'hidden'
+  ) {
+    options.onControl({
+      type:
+        initialLifecycleSnapshot.visibilityState === 'hidden'
+          ? 'VisibilityChanged'
+          : 'WindowBlur',
+      payload: { lifecycleSnapshot: initialLifecycleSnapshot },
+    })
+  }
+
   let destroyed = false
   return {
     destroy: () => {

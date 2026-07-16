@@ -16,6 +16,7 @@
           "id",
           "pearlType",
           "standardRadius",
+          "spawnClearance",
           "color",
           "outlineColor",
           "spawnVelocity",
@@ -36,6 +37,7 @@
             "enum": ["medicinalLiquid", "slag", "impurity"]
           },
           "standardRadius": { "type": "number", "exclusiveMinimum": 0, "maximum": 512 },
+          "spawnClearance": { "type": "number", "minimum": 0, "maximum": 512 },
           "color": { "$ref": "#/$defs/hexColor" },
           "outlineColor": { "$ref": "#/$defs/hexColor" },
           "spawnVelocity": {

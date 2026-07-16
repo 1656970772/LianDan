@@ -65,6 +65,7 @@ interface RawParameters {
   readonly dissolution?: Readonly<{
     readonly volumePerTick?: number
     readonly exposureProbeDistance?: number
+    readonly frontLaneWidthCells?: number
   }>
   readonly loss?: Readonly<{
     readonly naturalRatePerMinute?: number
@@ -140,6 +141,9 @@ function rangeMessage(fieldPath: string): string | undefined {
   }
   if (fieldPath === '/dissolution/exposureProbeDistance') {
     return '受火暴露探测距离必须是有限非负数'
+  }
+  if (fieldPath === '/dissolution/frontLaneWidthCells') {
+    return '火烧前沿通道宽度必须在 (0, 64] 个材料格之间'
   }
   if (fieldPath === '/loss/naturalRatePerMinute') {
     return '自然流失每分钟比例必须在 0..60 之间'
@@ -589,6 +593,13 @@ function normalize(raw: RawConfigSet, schemas: ConfigSchemaBundle): NormalizedCo
         schemas.parameters,
         'dissolution',
         'exposureProbeDistance',
+      ),
+    frontLaneWidthCells:
+      parameters.dissolution?.frontLaneWidthCells ??
+      staticNumberDefault(
+        schemas.parameters,
+        'dissolution',
+        'frontLaneWidthCells',
       ),
   }
   const warningThresholds =

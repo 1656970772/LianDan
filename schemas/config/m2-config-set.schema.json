@@ -9,7 +9,8 @@
     "prototype",
     "fireSources",
     "pearlTypes",
-    "collector"
+    "collector",
+    "presentation"
   ],
   "properties": {
     "schemaVersion": { "type": "integer", "const": 1 },
@@ -34,6 +35,10 @@
       "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
     },
     "interactions": {
+      "type": "string",
+      "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
+    },
+    "presentation": {
       "type": "string",
       "pattern": "^/config/m2/[a-z0-9][a-z0-9-]*\\.json$"
     }

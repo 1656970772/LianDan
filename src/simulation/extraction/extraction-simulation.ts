@@ -22,6 +22,15 @@ import {
   type FireFlowSource,
 } from '../fire-flow/index.ts'
 import {
+  orientedMaterialRectangleIsWithinBounds,
+  orientedMaterialRectanglesHaveInteriorIntersection,
+  type OrientedMaterialRectangle,
+} from '../../shared/material-placement-geometry.ts'
+import {
+  alignMaterialFrameToContentCenter,
+  deriveMaterialFrameLayout,
+} from '../../shared/material-content-geometry.ts'
+import {
   EXTRACTION_COMPOSITION_CELL_COUNT,
   EXTRACTION_COMPOSITION_GRID_SIZE,
   type ExtractionCollectorReadView,
@@ -41,15 +50,16 @@ import {
 } from './contracts.ts'
 import {
   circleIntersectsRemainingMaterial,
+  circleRemainingMaterialCollisionNormal,
   materialCellWorldPosition,
   rasterizeRemainingMaterials,
   normalizeAndClampFireDirection,
   sampleFireFlowIntensity,
-  segmentIntersectsRemainingMaterial,
   type MaterialGeometryState,
 } from './material-geometry.ts'
 import {
   clampVolumeToZero,
+  volumeTolerance,
   volumesApproximatelyEqual,
 } from '../volume-tolerance.ts'
 
@@ -76,9 +86,11 @@ interface MutableMaterial extends MaterialGeometryState {
   readonly initialVolumeByType: MutableTypeVolumes
   readonly initialCellVolumes: Float64Array
   readonly remainingCellVolumes: Float64Array
+  readonly fireErodedCells: Uint8Array
   readonly spawnAccumulators: MutableTypeVolumes
   readonly lastDissolvedPositions: MutableTypePositions
   readonly nextPearlOrdinals: MutableTypeVolumes
+  pendingFireCellIndex: number | null
 }
 
 interface MutablePearl {
@@ -228,20 +240,80 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
   if (config.exposureProbeDistance < 0) {
     throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:exposureProbeDistance')
   }
+  if (
+    !Number.isSafeInteger(config.frontLaneWidthCells) ||
+    config.frontLaneWidthCells < 1 ||
+    config.frontLaneWidthCells > EXTRACTION_COMPOSITION_GRID_SIZE
+  ) {
+    throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:frontLaneWidthCells')
+  }
   requireFinite('naturalLossRatePerMinute', config.naturalLossRatePerMinute)
   if (config.naturalLossRatePerMinute < 0 || config.naturalLossRatePerMinute > 60) {
     throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:naturalLossRatePerMinute')
   }
   requireFinite('safeZoneY', config.safeZoneY)
 
-  requirePositive('materialPlacement.width', config.materialPlacement.width)
-  requirePositive('materialPlacement.height', config.materialPlacement.height)
-  validateVector('materialPlacement.center', config.materialPlacement.center)
-  validateVector('materialPlacement.offsetPerInstance', config.materialPlacement.offsetPerInstance)
-  requireFinite(
-    'materialPlacement.rotationRadiansPerInstance',
-    config.materialPlacement.rotationRadiansPerInstance,
+  requirePositive(
+    'materialPlacement.visibleLongEdge',
+    config.materialPlacement.visibleLongEdge,
   )
+  requireNonNegative(
+    'materialPlacement.minimumGap',
+    config.materialPlacement.minimumGap,
+  )
+  for (const [name, value] of Object.entries(config.materialPlacement.usableRegion)) {
+    requireFinite(`materialPlacement.usableRegion.${name}`, value)
+  }
+  if (
+    config.materialPlacement.usableRegion.right <=
+      config.materialPlacement.usableRegion.left ||
+    config.materialPlacement.usableRegion.bottom <=
+      config.materialPlacement.usableRegion.top
+  ) {
+    throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:materialPlacement.usableRegion')
+  }
+  if (config.materialPlacement.slots.length === 0) {
+    throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:materialPlacement.slots')
+  }
+  const placementRectangles: OrientedMaterialRectangle[] = []
+  config.materialPlacement.slots.forEach((slot, index) => {
+    validateVector(`materialPlacement.slots.${index}.center`, slot.center)
+    requireFinite(
+      `materialPlacement.slots.${index}.rotationRadians`,
+      slot.rotationRadians,
+    )
+    const rectangle: OrientedMaterialRectangle = {
+      center: slot.center,
+      width: config.materialPlacement.visibleLongEdge,
+      height: config.materialPlacement.visibleLongEdge,
+      rotationRadians: slot.rotationRadians,
+    }
+    if (
+      !orientedMaterialRectangleIsWithinBounds(
+        rectangle,
+        config.materialPlacement.usableRegion,
+      )
+    ) {
+      throw new RangeError(
+        `SIM_EXTRACTION_CONFIG_INVALID:materialPlacement.slots.${index}.bounds`,
+      )
+    }
+    const gapRectangle: OrientedMaterialRectangle = {
+      ...rectangle,
+      width: rectangle.width + config.materialPlacement.minimumGap,
+      height: rectangle.height + config.materialPlacement.minimumGap,
+    }
+    if (
+      placementRectangles.some((previous) =>
+        orientedMaterialRectanglesHaveInteriorIntersection(previous, gapRectangle),
+      )
+    ) {
+      throw new RangeError(
+        `SIM_EXTRACTION_CONFIG_INVALID:materialPlacement.slots.${index}.overlap`,
+      )
+    }
+    placementRectangles.push(gapRectangle)
+  })
 
   validateVector('fireSource.origin', config.fireSource.origin)
   requireFinite('fireSource.halfAngleRadians', config.fireSource.halfAngleRadians)
@@ -283,6 +355,7 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
   for (const pearlType of PEARL_TYPES) {
     const physics = config.pearlPhysics[pearlType]
     requirePositive(`${pearlType}.radiusAtStandardVolume`, physics.radiusAtStandardVolume)
+    requireNonNegative(`${pearlType}.spawnClearance`, physics.spawnClearance)
     const velocity = physics.spawnVelocity
     requireFinite(`${pearlType}.spawnVelocity.minX`, velocity.minX)
     requireFinite(`${pearlType}.spawnVelocity.maxX`, velocity.maxX)
@@ -340,6 +413,25 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
     config.worldBounds.bottom <= config.worldBounds.top
   ) {
     throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:worldBounds')
+  }
+  const placementRegion = config.materialPlacement.usableRegion
+  if (
+    !orientedMaterialRectangleIsWithinBounds(
+      {
+        center: {
+          x: (placementRegion.left + placementRegion.right) * 0.5,
+          y: (placementRegion.top + placementRegion.bottom) * 0.5,
+        },
+        width: placementRegion.right - placementRegion.left,
+        height: placementRegion.bottom - placementRegion.top,
+        rotationRadians: 0,
+      },
+      config.worldBounds,
+    )
+  ) {
+    throw new RangeError(
+      'SIM_EXTRACTION_CONFIG_INVALID:materialPlacement.usableRegion.bounds',
+    )
   }
   if (config.safeZoneY < config.worldBounds.top || config.safeZoneY > config.worldBounds.bottom) {
     throw new RangeError('SIM_EXTRACTION_CONFIG_INVALID:safeZoneY')
@@ -402,8 +494,11 @@ function cloneAndValidateConfig(config: ExtractionSimulationConfig): ExtractionS
     },
     materialPlacement: {
       ...config.materialPlacement,
-      center: { ...config.materialPlacement.center },
-      offsetPerInstance: { ...config.materialPlacement.offsetPerInstance },
+      usableRegion: { ...config.materialPlacement.usableRegion },
+      slots: config.materialPlacement.slots.map((slot) => ({
+        center: { ...slot.center },
+        rotationRadians: slot.rotationRadians,
+      })),
     },
     fireSource: {
       ...config.fireSource,
@@ -500,6 +595,7 @@ function cloneMaterial(material: MutableMaterial): MutableMaterial {
     initialVolumeByType: { ...material.initialVolumeByType },
     initialCellVolumes: new Float64Array(material.initialCellVolumes),
     remainingCellVolumes: new Float64Array(material.remainingCellVolumes),
+    fireErodedCells: new Uint8Array(material.fireErodedCells),
     spawnAccumulators: { ...material.spawnAccumulators },
     lastDissolvedPositions: {
       medicinalLiquid: { ...material.lastDissolvedPositions.medicinalLiquid },
@@ -507,6 +603,7 @@ function cloneMaterial(material: MutableMaterial): MutableMaterial {
       impurity: { ...material.lastDissolvedPositions.impurity },
     },
     nextPearlOrdinals: { ...material.nextPearlOrdinals },
+    pendingFireCellIndex: material.pendingFireCellIndex,
   }
 }
 
@@ -938,6 +1035,12 @@ export class ExtractionSimulation {
   }
 
   #synchronizeMaterials(transaction: TickTransaction, domainState: DomainState): void {
+    if (
+      domainState.materialInstances.length >
+      this.#config.materialPlacement.slots.length
+    ) {
+      throw new Error('SIM_EXTRACTION_MATERIAL_PLACEMENT_FULL')
+    }
     const stateById = new Map(
       transaction.state.materials.map((material) => [material.materialInstanceId, material]),
     )
@@ -948,8 +1051,7 @@ export class ExtractionSimulation {
       }
     }
 
-    for (let index = 0; index < domainState.materialInstances.length; index += 1) {
-      const instance = domainState.materialInstances[index]!
+    for (const instance of domainState.materialInstances) {
       const existing = stateById.get(instance.materialInstanceId)
       if (existing !== undefined) {
         if (
@@ -960,7 +1062,10 @@ export class ExtractionSimulation {
         }
         continue
       }
-      const material = this.#createMaterial(instance, index)
+      const material = this.#createMaterial(
+        instance,
+        transaction.state.materials.length,
+      )
       const theoreticalMedicinalVolume =
         instance.theoreticalMedicinalVolume ??
         material.initialVolumeByType.medicinalLiquid
@@ -992,6 +1097,10 @@ export class ExtractionSimulation {
   #createMaterial(instance: MaterialInstance, layer: number): MutableMaterial {
     const definition = this.#definitions.get(instance.materialDefinitionId)
     if (definition === undefined) throw new Error('SIM_EXTRACTION_MATERIAL_DEFINITION_NOT_FOUND')
+    const slot = this.#config.materialPlacement.slots[layer]
+    if (slot === undefined) {
+      throw new Error('SIM_EXTRACTION_MATERIAL_PLACEMENT_FULL')
+    }
     const totalVolume = definition.targetPearlCount * this.#config.standardPearlVolume
     if (
       !approximatelyEqual(instance.initialVolume, totalVolume) ||
@@ -1011,19 +1120,19 @@ export class ExtractionSimulation {
       initialCellVolumes[cellIndex] = volumePerCell
       initialVolumeByType[pearlType] += volumePerCell
     }
+    const layout = deriveMaterialFrameLayout(
+      definition.composition,
+      this.#config.materialPlacement.visibleLongEdge,
+    )
     const placement: ExtractionMaterialPlacement = {
-      center: {
-        x:
-          this.#config.materialPlacement.center.x +
-          this.#config.materialPlacement.offsetPerInstance.x * layer,
-        y:
-          this.#config.materialPlacement.center.y +
-          this.#config.materialPlacement.offsetPerInstance.y * layer,
-      },
-      width: this.#config.materialPlacement.width,
-      height: this.#config.materialPlacement.height,
-      rotationRadians:
-        this.#config.materialPlacement.rotationRadiansPerInstance * layer,
+      center: alignMaterialFrameToContentCenter(
+        slot.center,
+        slot.rotationRadians,
+        layout,
+      ),
+      width: layout.frameWidth,
+      height: layout.frameHeight,
+      rotationRadians: slot.rotationRadians,
       layer,
     }
     return {
@@ -1038,9 +1147,11 @@ export class ExtractionSimulation {
       initialVolumeByType,
       initialCellVolumes,
       remainingCellVolumes: new Float64Array(initialCellVolumes),
+      fireErodedCells: new Uint8Array(EXTRACTION_COMPOSITION_CELL_COUNT),
       spawnAccumulators: emptyTypeVolumes(),
       lastDissolvedPositions: centeredTypePositions(placement.center),
       nextPearlOrdinals: emptyTypeVolumes(),
+      pendingFireCellIndex: null,
     }
   }
 
@@ -1169,9 +1280,10 @@ export class ExtractionSimulation {
         0,
       )
       const requested = Math.min(budget, capacity)
-      const allocations = this.#allocateEqually(
+      const allocations = this.#allocateFireFront(
+        transaction,
+        material,
         exposed,
-        material.remainingCellVolumes,
         requested,
       )
       let applied = 0
@@ -1190,15 +1302,44 @@ export class ExtractionSimulation {
     if (material.remainingVolume === 0) {
       material.remainingCellVolumes.fill(0)
       for (const pearlType of PEARL_TYPES) {
+        while (
+          material.spawnAccumulators[pearlType] +
+            volumeTolerance(
+              material.spawnAccumulators[pearlType],
+              this.#config.standardPearlVolume,
+            ) >=
+          this.#config.standardPearlVolume
+        ) {
+          if (
+            !this.#spawnPearl(
+              transaction,
+              material,
+              pearlType,
+              this.#config.standardPearlVolume,
+              material.lastDissolvedPositions[pearlType],
+            )
+          ) {
+            throw new Error('SIM_EXTRACTION_PEARL_SPAWN_BLOCKED')
+          }
+          material.spawnAccumulators[pearlType] = clampVolumeToZero(
+            material.spawnAccumulators[pearlType] -
+              this.#config.standardPearlVolume,
+            this.#config.standardPearlVolume,
+          )
+        }
         const tailVolume = material.spawnAccumulators[pearlType]
         if (tailVolume <= 0) continue
-        this.#spawnPearl(
-          transaction,
-          material,
-          pearlType,
-          tailVolume,
-          material.lastDissolvedPositions[pearlType],
-        )
+        if (
+          !this.#spawnPearl(
+            transaction,
+            material,
+            pearlType,
+            tailVolume,
+            material.lastDissolvedPositions[pearlType],
+          )
+        ) {
+          throw new Error('SIM_EXTRACTION_PEARL_SPAWN_BLOCKED')
+        }
         material.spawnAccumulators[pearlType] = 0
       }
     }
@@ -1208,63 +1349,311 @@ export class ExtractionSimulation {
     transaction: TickTransaction,
     material: MutableMaterial,
   ): number[] {
-    const result: number[] = []
-    for (let cellIndex = 0; cellIndex < material.remainingCellVolumes.length; cellIndex += 1) {
-      if (material.remainingCellVolumes[cellIndex]! <= 0) continue
-      if (this.#hasReachableFirePath(transaction, material, cellIndex)) {
-        result.push(cellIndex)
+    const direction = transaction.fireDirection
+    const perpendicular = { x: -direction.y, y: direction.x }
+    const halfFireWidth = transaction.fireWidth * 0.5
+    const targetCosine = Math.cos(material.placement.rotationRadians)
+    const targetSine = Math.sin(material.placement.rotationRadians)
+    const targetCellWidth =
+      material.placement.width / EXTRACTION_COMPOSITION_GRID_SIZE
+    const targetCellHeight =
+      material.placement.height / EXTRACTION_COMPOSITION_GRID_SIZE
+    const targetProjectedCellWidth =
+      Math.abs(
+        perpendicular.x * targetCosine +
+          perpendicular.y * targetSine,
+      ) *
+        targetCellWidth +
+      Math.abs(
+        perpendicular.x * -targetSine +
+          perpendicular.y * targetCosine,
+      ) *
+        targetCellHeight
+    const laneWidth = Math.max(
+      GEOMETRY_EPSILON,
+      targetProjectedCellWidth * this.#config.frontLaneWidthCells,
+    )
+    const minimumLaneIndex = Math.ceil(-halfFireWidth / laneWidth)
+    const maximumLaneIndex = Math.floor(halfFireWidth / laneWidth)
+    const lanes: {
+      readonly lateral: number
+      projection: number
+      material: MutableMaterial | null
+      materialIndex: number
+      cellIndex: number
+    }[] = []
+    for (
+      let laneIndex = minimumLaneIndex;
+      laneIndex <= maximumLaneIndex;
+      laneIndex += 1
+    ) {
+      lanes.push({
+        lateral: laneIndex * laneWidth,
+        projection: Number.POSITIVE_INFINITY,
+        material: null,
+        materialIndex: -1,
+        cellIndex: -1,
+      })
+    }
+    const addEdgeLane = (lateral: number): void => {
+      if (
+        lanes.some(
+          (lane) => Math.abs(lane.lateral - lateral) <= GEOMETRY_EPSILON,
+        )
+      ) {
+        return
+      }
+      lanes.push({
+        lateral,
+        projection: Number.POSITIVE_INFINITY,
+        material: null,
+        materialIndex: -1,
+        cellIndex: -1,
+      })
+    }
+    addEdgeLane(-halfFireWidth)
+    addEdgeLane(halfFireWidth)
+    lanes.sort((left, right) => left.lateral - right.lateral)
+
+    for (
+      let materialIndex = 0;
+      materialIndex < transaction.state.materials.length;
+      materialIndex += 1
+    ) {
+      const blocker = transaction.state.materials[materialIndex]!
+      const cosine = Math.cos(blocker.placement.rotationRadians)
+      const sine = Math.sin(blocker.placement.rotationRadians)
+      const cellWidth =
+        blocker.placement.width / EXTRACTION_COMPOSITION_GRID_SIZE
+      const cellHeight =
+        blocker.placement.height / EXTRACTION_COMPOSITION_GRID_SIZE
+      const lateralHalfExtent =
+        0.5 *
+        (
+          Math.abs(perpendicular.x * cosine + perpendicular.y * sine) *
+            cellWidth +
+          Math.abs(perpendicular.x * -sine + perpendicular.y * cosine) *
+            cellHeight
+        )
+      for (
+        let cellIndex = 0;
+        cellIndex < blocker.remainingCellVolumes.length;
+        cellIndex += 1
+      ) {
+        if (blocker.remainingCellVolumes[cellIndex]! <= 0) continue
+        const center = materialCellWorldPosition(blocker, cellIndex)
+        const relativeX = center.x - this.#config.fireSource.origin.x
+        const relativeY = center.y - this.#config.fireSource.origin.y
+        const signedLateral =
+          relativeX * perpendicular.x + relativeY * perpendicular.y
+        if (
+          signedLateral + lateralHalfExtent <
+            -halfFireWidth - GEOMETRY_EPSILON ||
+          signedLateral - lateralHalfExtent >
+            halfFireWidth + GEOMETRY_EPSILON
+        ) {
+          continue
+        }
+        for (const lane of lanes) {
+          if (
+            lane.lateral <
+              signedLateral - lateralHalfExtent - GEOMETRY_EPSILON ||
+            lane.lateral >
+              signedLateral + lateralHalfExtent + GEOMETRY_EPSILON
+          ) {
+            continue
+          }
+          const projection = this.#fireLaneCellEntryProjection(
+            blocker,
+            cellIndex,
+            lane.lateral,
+            direction,
+            perpendicular,
+          )
+          if (projection === null) continue
+          if (
+            projection < lane.projection - GEOMETRY_EPSILON ||
+            (
+              Math.abs(projection - lane.projection) <= GEOMETRY_EPSILON &&
+              (
+                lane.material === null ||
+                materialIndex < lane.materialIndex ||
+                (
+                  materialIndex === lane.materialIndex &&
+                  cellIndex < lane.cellIndex
+                )
+              )
+            )
+          ) {
+            lane.projection = projection
+            lane.material = blocker
+            lane.materialIndex = materialIndex
+            lane.cellIndex = cellIndex
+          }
+        }
       }
     }
-    return result
+
+    const result = new Set<number>()
+    for (const lane of lanes) {
+      if (
+        lane.material !== material ||
+        lane.cellIndex < 0 ||
+        !this.#fireLaneHasFlow(
+          transaction,
+          lane.lateral,
+          lane.projection,
+        )
+      ) {
+        continue
+      }
+      result.add(lane.cellIndex)
+    }
+    if (result.size === 0) {
+      const neighborOffsets = [
+        { column: -1, row: 0 },
+        { column: 1, row: 0 },
+        { column: 0, row: -1 },
+        { column: 0, row: 1 },
+      ] as const
+      for (
+        let cellIndex = 0;
+        cellIndex < material.remainingCellVolumes.length;
+        cellIndex += 1
+      ) {
+        if (material.remainingCellVolumes[cellIndex]! <= 0) continue
+        const center = materialCellWorldPosition(material, cellIndex)
+        const relativeX =
+          center.x - this.#config.fireSource.origin.x
+        const relativeY =
+          center.y - this.#config.fireSource.origin.y
+        const signedLateral =
+          relativeX * perpendicular.x + relativeY * perpendicular.y
+        if (
+          Math.abs(signedLateral) >
+          halfFireWidth +
+            laneWidth +
+            GEOMETRY_EPSILON
+        ) {
+          continue
+        }
+        const column = cellIndex % EXTRACTION_COMPOSITION_GRID_SIZE
+        const row = Math.floor(
+          cellIndex / EXTRACTION_COMPOSITION_GRID_SIZE,
+        )
+        for (const offset of neighborOffsets) {
+          const neighborColumn = column + offset.column
+          const neighborRow = row + offset.row
+          if (
+            neighborColumn < 0 ||
+            neighborColumn >= EXTRACTION_COMPOSITION_GRID_SIZE ||
+            neighborRow < 0 ||
+            neighborRow >= EXTRACTION_COMPOSITION_GRID_SIZE
+          ) {
+            continue
+          }
+          const neighborIndex =
+            neighborRow * EXTRACTION_COMPOSITION_GRID_SIZE +
+            neighborColumn
+          if (
+            material.remainingCellVolumes[neighborIndex]! > 0 ||
+            material.fireErodedCells[neighborIndex] === 0
+          ) continue
+          result.add(cellIndex)
+          break
+        }
+      }
+    }
+    return [...result].sort((left, right) => left - right)
   }
 
-  #hasReachableFirePath(
-    transaction: TickTransaction,
+  #fireLaneCellEntryProjection(
     material: MutableMaterial,
     cellIndex: number,
+    lateral: number,
+    direction: ExtractionVector,
+    perpendicular: ExtractionVector,
+  ): number | null {
+    const placement = material.placement
+    const cosine = Math.cos(placement.rotationRadians)
+    const sine = Math.sin(placement.rotationRadians)
+    const rayOrigin = {
+      x: this.#config.fireSource.origin.x + perpendicular.x * lateral,
+      y: this.#config.fireSource.origin.y + perpendicular.y * lateral,
+    }
+    const originDeltaX = rayOrigin.x - placement.center.x
+    const originDeltaY = rayOrigin.y - placement.center.y
+    const localOrigin = {
+      x: originDeltaX * cosine + originDeltaY * sine,
+      y: -originDeltaX * sine + originDeltaY * cosine,
+    }
+    const localDirection = {
+      x: direction.x * cosine + direction.y * sine,
+      y: -direction.x * sine + direction.y * cosine,
+    }
+    const column = cellIndex % EXTRACTION_COMPOSITION_GRID_SIZE
+    const row = Math.floor(cellIndex / EXTRACTION_COMPOSITION_GRID_SIZE)
+    const cellWidth =
+      placement.width / EXTRACTION_COMPOSITION_GRID_SIZE
+    const cellHeight =
+      placement.height / EXTRACTION_COMPOSITION_GRID_SIZE
+    const left = -placement.width * 0.5 + column * cellWidth
+    const top = -placement.height * 0.5 + row * cellHeight
+    let entry = 0
+    let exit = Number.POSITIVE_INFINITY
+    for (const [origin, delta, minimum, maximum] of [
+      [localOrigin.x, localDirection.x, left, left + cellWidth],
+      [localOrigin.y, localDirection.y, top, top + cellHeight],
+    ] as const) {
+      if (Math.abs(delta) <= GEOMETRY_EPSILON) {
+        if (
+          origin < minimum - GEOMETRY_EPSILON ||
+          origin > maximum + GEOMETRY_EPSILON
+        ) {
+          return null
+        }
+        continue
+      }
+      const first = (minimum - origin) / delta
+      const second = (maximum - origin) / delta
+      entry = Math.max(entry, Math.min(first, second))
+      exit = Math.min(exit, Math.max(first, second))
+      if (entry > exit + GEOMETRY_EPSILON) return null
+    }
+    return exit < -GEOMETRY_EPSILON ? null : Math.max(0, entry)
+  }
+
+  #fireLaneHasFlow(
+    transaction: TickTransaction,
+    lateral: number,
+    entryProjection: number,
   ): boolean {
     const flowView = transaction.flowView
     if (flowView === null) return false
-    const center = materialCellWorldPosition(material, cellIndex)
-    const relativeX = center.x - this.#config.fireSource.origin.x
-    const relativeY = center.y - this.#config.fireSource.origin.y
-    const projection =
-      relativeX * transaction.fireDirection.x +
-      relativeY * transaction.fireDirection.y
-    const lateralDistance = Math.abs(
-      relativeX * -transaction.fireDirection.y +
-        relativeY * transaction.fireDirection.x,
-    )
-    if (
-      projection < 0 ||
-      lateralDistance > transaction.fireWidth * 0.5 + GEOMETRY_EPSILON
-    ) {
-      return false
-    }
-    const towardSource = {
-      x: -transaction.fireDirection.x,
-      y: -transaction.fireDirection.y,
-    }
-    if (
-      segmentIntersectsRemainingMaterial(
-        transaction.state.materials,
-        center,
-        this.#config.fireSource.origin,
-        { material, cellIndex },
-      )
-    ) {
-      return false
-    }
     const maximumProbeStep = this.#config.fireFlow.geometry.cellSize * 0.5
     const stepDistance =
       this.#config.exposureProbeDistance > 0
         ? Math.min(this.#config.exposureProbeDistance, maximumProbeStep)
         : maximumProbeStep
-    const stepCount = Math.ceil(projection / stepDistance) + 1
-    for (let step = 1; step <= stepCount; step += 1) {
+    const perpendicular = {
+      x: -transaction.fireDirection.y,
+      y: transaction.fireDirection.x,
+    }
+    const stepCount = Math.ceil(entryProjection / stepDistance) + 1
+    for (let step = 0; step <= stepCount; step += 1) {
+      const projection = Math.max(
+        0,
+        entryProjection - stepDistance * step,
+      )
       const point = {
-        x: center.x + towardSource.x * stepDistance * step,
-        y: center.y + towardSource.y * stepDistance * step,
+        x:
+          this.#config.fireSource.origin.x +
+          perpendicular.x * lateral +
+          transaction.fireDirection.x * projection,
+        y:
+          this.#config.fireSource.origin.y +
+          perpendicular.y * lateral +
+          transaction.fireDirection.y * projection,
       }
       if (
         point.x < this.#config.worldBounds.left ||
@@ -1275,35 +1664,160 @@ export class ExtractionSimulation {
         return false
       }
       if (sampleFireFlowIntensity(flowView, point) > 0) return true
+      if (projection === 0) break
     }
     return false
   }
 
-  #allocateEqually(
+  #allocateFireFront(
+    transaction: TickTransaction,
+    material: MutableMaterial,
     cellIndexes: readonly number[],
-    volumes: Float64Array,
     requested: number,
   ): ReadonlyMap<number, number> {
     const allocations = new Map<number, number>()
-    let active = [...cellIndexes]
-    let remaining = requested
-    while (remaining > 0 && active.length > 0) {
-      const share = remaining / active.length
-      const constrained = active.filter(
-        (cellIndex) => volumes[cellIndex]! <= share,
+    const origin = this.#config.fireSource.origin
+    const direction = transaction.fireDirection
+    let remainingRequested = requested
+    const pendingCellIndex = material.pendingFireCellIndex
+    if (
+      pendingCellIndex !== null &&
+      material.remainingCellVolumes[pendingCellIndex]! > 0
+    ) {
+      const available = material.remainingCellVolumes[pendingCellIndex]!
+      const applied = Math.min(remainingRequested, available)
+      allocations.set(pendingCellIndex, applied)
+      remainingRequested = clampVolumeToZero(
+        Math.max(0, remainingRequested - applied),
+        requested,
       )
-      if (constrained.length === 0) {
-        for (const cellIndex of active) allocations.set(cellIndex, share)
-        remaining = 0
+      if (applied < available - volumeTolerance(applied, available)) {
+        return allocations
+      }
+      material.pendingFireCellIndex = null
+      if (remainingRequested === 0) return allocations
+    }
+    material.pendingFireCellIndex = null
+
+    const perpendicular = { x: -direction.y, y: direction.x }
+    const coreCellIndexes = cellIndexes.filter((cellIndex) => {
+      const position = materialCellWorldPosition(material, cellIndex)
+      const relativeX = position.x - origin.x
+      const relativeY = position.y - origin.y
+      const signedLateral =
+        relativeX * perpendicular.x + relativeY * perpendicular.y
+      return (
+        Math.abs(signedLateral) <=
+        transaction.fireWidth * 0.5 + GEOMETRY_EPSILON
+      )
+    })
+    const candidateCellIndexes =
+      coreCellIndexes.length > 0 ? coreCellIndexes : cellIndexes
+    const cosine = Math.cos(material.placement.rotationRadians)
+    const sine = Math.sin(material.placement.rotationRadians)
+    const cellWidth =
+      material.placement.width / EXTRACTION_COMPOSITION_GRID_SIZE
+    const cellHeight =
+      material.placement.height / EXTRACTION_COMPOSITION_GRID_SIZE
+    const projectedCellWidth =
+      Math.abs(perpendicular.x * cosine + perpendicular.y * sine) *
+        cellWidth +
+      Math.abs(perpendicular.x * -sine + perpendicular.y * cosine) *
+        cellHeight
+    const laneWidth = Math.max(
+      GEOMETRY_EPSILON,
+      projectedCellWidth * this.#config.frontLaneWidthCells,
+    )
+    const laneMinimumProjection = new Map<number, number>()
+    const cellCoordinates = (
+      cellIndex: number,
+    ): Readonly<{
+      projection: number
+      lateral: number
+      laneIndex: number
+    }> => {
+      const position = materialCellWorldPosition(material, cellIndex)
+      const relativeX = position.x - origin.x
+      const relativeY = position.y - origin.y
+      const projection =
+        relativeX * direction.x + relativeY * direction.y
+      const lateral =
+        relativeX * perpendicular.x + relativeY * perpendicular.y
+      return {
+        projection,
+        lateral,
+        laneIndex: Math.floor(lateral / laneWidth + 0.5),
+      }
+    }
+    for (
+      let cellIndex = 0;
+      cellIndex < material.initialCellVolumes.length;
+      cellIndex += 1
+    ) {
+      if (material.initialCellVolumes[cellIndex]! <= 0) continue
+      const coordinates = cellCoordinates(cellIndex)
+      const previous = laneMinimumProjection.get(coordinates.laneIndex)
+      if (
+        previous === undefined ||
+        coordinates.projection < previous
+      ) {
+        laneMinimumProjection.set(
+          coordinates.laneIndex,
+          coordinates.projection,
+        )
+      }
+    }
+    const ordered = candidateCellIndexes
+      .map((cellIndex) => {
+        const coordinates = cellCoordinates(cellIndex)
+        return {
+          cellIndex,
+          ...coordinates,
+          relativeDepth:
+            coordinates.projection -
+            (laneMinimumProjection.get(coordinates.laneIndex) ??
+              coordinates.projection),
+        }
+      })
+      .sort((left, right) => {
+        if (
+          Math.abs(left.relativeDepth - right.relativeDepth) >
+          GEOMETRY_EPSILON
+        ) {
+          return left.relativeDepth - right.relativeDepth
+        }
+        const lateralDifference =
+          Math.abs(left.lateral) - Math.abs(right.lateral)
+        if (Math.abs(lateralDifference) > GEOMETRY_EPSILON) {
+          return lateralDifference
+        }
+        if (
+          Math.abs(left.projection - right.projection) >
+          GEOMETRY_EPSILON
+        ) {
+          return left.projection - right.projection
+        }
+        return left.cellIndex - right.cellIndex
+      })
+    for (const selected of ordered) {
+      if (remainingRequested === 0) break
+      const alreadyAllocated = allocations.get(selected.cellIndex) ?? 0
+      const available = Math.max(
+        0,
+        material.remainingCellVolumes[selected.cellIndex]! - alreadyAllocated,
+      )
+      if (available === 0) continue
+      const applied = Math.min(remainingRequested, available)
+      if (applied <= 0) continue
+      allocations.set(selected.cellIndex, alreadyAllocated + applied)
+      remainingRequested = clampVolumeToZero(
+        Math.max(0, remainingRequested - applied),
+        requested,
+      )
+      if (applied < available - volumeTolerance(applied, available)) {
+        material.pendingFireCellIndex = selected.cellIndex
         break
       }
-      const constrainedSet = new Set(constrained)
-      for (const cellIndex of constrained) {
-        const volume = volumes[cellIndex]!
-        allocations.set(cellIndex, volume)
-        remaining -= volume
-      }
-      active = active.filter((cellIndex) => !constrainedSet.has(cellIndex))
     }
     return allocations
   }
@@ -1319,6 +1833,9 @@ export class ExtractionSimulation {
     const available = material.remainingCellVolumes[cellIndex]!
     const applied = Math.min(available, volume)
     material.remainingCellVolumes[cellIndex] = Math.max(0, available - applied)
+    if (applied > 0 && material.remainingCellVolumes[cellIndex] === 0) {
+      material.fireErodedCells[cellIndex] = 1
+    }
     material.remainingVolume = Math.max(0, material.remainingVolume - applied)
     const position = materialCellWorldPosition(material, cellIndex)
     material.lastDissolvedPositions[pearlType] = position
@@ -1338,18 +1855,27 @@ export class ExtractionSimulation {
     }
 
     while (
-      material.spawnAccumulators[pearlType] >= this.#config.standardPearlVolume
+      material.spawnAccumulators[pearlType] +
+        volumeTolerance(
+          material.spawnAccumulators[pearlType],
+          this.#config.standardPearlVolume,
+        ) >=
+      this.#config.standardPearlVolume
     ) {
-      this.#spawnPearl(
-        transaction,
-        material,
-        pearlType,
-        this.#config.standardPearlVolume,
-        position,
-      )
-      material.spawnAccumulators[pearlType] = Math.max(
-        0,
+      if (
+        !this.#spawnPearl(
+          transaction,
+          material,
+          pearlType,
+          this.#config.standardPearlVolume,
+          position,
+        )
+      ) {
+        throw new Error('SIM_EXTRACTION_PEARL_SPAWN_BLOCKED')
+      }
+      material.spawnAccumulators[pearlType] = clampVolumeToZero(
         material.spawnAccumulators[pearlType] - this.#config.standardPearlVolume,
+        this.#config.standardPearlVolume,
       )
     }
   }
@@ -1360,13 +1886,24 @@ export class ExtractionSimulation {
     pearlType: PearlType,
     volume: number,
     position: ExtractionVector,
-  ): void {
-    material.nextPearlOrdinals[pearlType] += 1
-    const ordinal = material.nextPearlOrdinals[pearlType]
+  ): boolean {
+    const physics = this.#config.pearlPhysics[pearlType]
+    const radius =
+      physics.radiusAtStandardVolume *
+      Math.sqrt(volume / this.#config.standardPearlVolume)
+    const spawnPosition = this.#findPearlSpawnPosition(
+      transaction,
+      material,
+      position,
+      radius,
+      physics.spawnClearance,
+    )
+    if (spawnPosition === null) return false
+
+    const ordinal = material.nextPearlOrdinals[pearlType] + 1
     const pearlId = `pearl:${material.materialInstanceId}:${pearlType}:${ordinal
       .toString()
       .padStart(6, '0')}`
-    const physics = this.#config.pearlPhysics[pearlType]
     const pearlIdentity = {
       sourceMaterialDefinitionId: material.materialDefinitionId,
       pearlType,
@@ -1380,9 +1917,7 @@ export class ExtractionSimulation {
       )
       .map((interaction) => interaction.id)
       .sort(compareStableId)
-    const radius =
-      physics.radiusAtStandardVolume *
-      Math.sqrt(volume / this.#config.standardPearlVolume)
+    material.nextPearlOrdinals[pearlType] = ordinal
     transaction.state.pearls.push({
       pearlId,
       sourceMaterialDefinitionId: material.materialDefinitionId,
@@ -1393,7 +1928,7 @@ export class ExtractionSimulation {
       initialVolume: volume,
       currentVolume: volume,
       radius,
-      position: { ...position },
+      position: spawnPosition,
       velocity: spawnVelocity(this.#config.seed, pearlId, physics),
       state: 'newborn',
       exposureTicks: 0,
@@ -1412,6 +1947,56 @@ export class ExtractionSimulation {
       pearlType,
       volume,
     })
+    return true
+  }
+
+  #findPearlSpawnPosition(
+    transaction: TickTransaction,
+    material: MutableMaterial,
+    origin: ExtractionVector,
+    radius: number,
+    clearance: number,
+  ): ExtractionVector | null {
+    const collisionRadius = radius + clearance
+    const towardSource = {
+      x: -transaction.fireDirection.x,
+      y: -transaction.fireDirection.y,
+    }
+    const stepDistance =
+      Math.min(material.placement.width, material.placement.height) /
+      EXTRACTION_COMPOSITION_GRID_SIZE /
+      2
+    const world = this.#config.worldBounds
+    const maximumDistance = Math.hypot(
+      world.right - world.left,
+      world.bottom - world.top,
+    )
+    const maximumStep = Math.ceil(maximumDistance / stepDistance)
+    for (let step = 0; step <= maximumStep; step += 1) {
+      const distance = step * stepDistance
+      const candidate = {
+        x: origin.x + towardSource.x * distance,
+        y: origin.y + towardSource.y * distance,
+      }
+      if (
+        candidate.x - collisionRadius < world.left ||
+        candidate.x + collisionRadius > world.right ||
+        candidate.y - collisionRadius < world.top ||
+        candidate.y + collisionRadius > world.bottom
+      ) {
+        continue
+      }
+      if (
+        !circleIntersectsRemainingMaterial(
+          transaction.state.materials,
+          candidate,
+          collisionRadius,
+        )
+      ) {
+        return candidate
+      }
+    }
+    return null
   }
 
   #moveCollectorAndPearls(
@@ -1528,36 +2113,70 @@ export class ExtractionSimulation {
         nextPosition.x - pearl.position.x,
         nextPosition.y - pearl.position.y,
       )
-      const collisionStep =
-        Math.min(
-          this.#config.materialPlacement.width,
-          this.#config.materialPlacement.height,
-        ) /
-        EXTRACTION_COMPOSITION_GRID_SIZE /
-        2
+      const collisionStep = Math.min(
+        ...transaction.state.materials.map(
+          (material) =>
+            Math.min(material.placement.width, material.placement.height) /
+            EXTRACTION_COMPOSITION_GRID_SIZE /
+            2,
+        ),
+      )
       const substeps = Math.max(1, Math.ceil(displacement / collisionStep))
-      let collided = false
+      let collisionNormal: ExtractionVector | null = null
       for (let substep = 1; substep <= substeps; substep += 1) {
         const ratio = substep / substeps
         const probePosition = {
           x: pearl.position.x + (nextPosition.x - pearl.position.x) * ratio,
           y: pearl.position.y + (nextPosition.y - pearl.position.y) * ratio,
         }
-        if (
-          circleIntersectsRemainingMaterial(
-            transaction.state.materials,
-            probePosition,
-            pearl.radius,
-          )
-        ) {
-          collided = true
+        collisionNormal = circleRemainingMaterialCollisionNormal(
+          transaction.state.materials,
+          probePosition,
+          pearl.radius,
+        )
+        if (collisionNormal !== null) {
           break
         }
       }
-      if (collided) {
+      if (collisionNormal !== null) {
+        const normalVelocity =
+          velocityX * collisionNormal.x + velocityY * collisionNormal.y
+        const tangentVelocity = {
+          x: velocityX - normalVelocity * collisionNormal.x,
+          y: velocityY - normalVelocity * collisionNormal.y,
+        }
+        const tangentPosition = {
+          x:
+            pearl.position.x +
+            tangentVelocity.x * this.#config.fixedDeltaSeconds,
+          y:
+            pearl.position.y +
+            tangentVelocity.y * this.#config.fixedDeltaSeconds,
+        }
+        if (
+          tangentPosition.x - pearl.radius >= this.#config.worldBounds.left &&
+          tangentPosition.x + pearl.radius <= this.#config.worldBounds.right &&
+          tangentPosition.y - pearl.radius >= this.#config.worldBounds.top &&
+          tangentPosition.y + pearl.radius <= this.#config.worldBounds.bottom &&
+          !circleIntersectsRemainingMaterial(
+            transaction.state.materials,
+            tangentPosition,
+            pearl.radius,
+          )
+        ) {
+          pearl.position = tangentPosition
+        }
+        const reflectedNormalVelocity =
+          normalVelocity < 0
+            ? -normalVelocity * physics.materialRestitution
+            : normalVelocity
         pearl.velocity = {
-          x: -velocityX * physics.materialRestitution,
-          y: -velocityY * physics.materialRestitution,
+          x:
+            tangentVelocity.x +
+            reflectedNormalVelocity * collisionNormal.x,
+          y:
+            tangentVelocity.y +
+            reflectedNormalVelocity * collisionNormal.y,
         }
       } else {
         const resolved = { ...nextPosition }

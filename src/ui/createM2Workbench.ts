@@ -36,6 +36,31 @@ export interface M2FireSizeRange {
   readonly max: number
 }
 
+export type M2FurnaceTemperatureTrend = 'heating' | 'cooling' | 'steady'
+
+export interface M2FurnaceTemperatureRange {
+  readonly min: number
+  readonly max: number
+}
+
+export interface M2FurnaceTemperatureThresholds {
+  readonly warmRatio: number
+  readonly blazingRatio: number
+}
+
+export interface M2WorkbenchDebugView {
+  readonly simulationContentFingerprint: string
+  readonly presentationContentFingerprint: string
+  readonly flowGeneration: number
+  readonly pauseReasons: readonly string[]
+  readonly firePresentationState: string
+  readonly fireVisualIntensity: number
+  readonly failurePresentationState: string
+  readonly failurePresentationProgress: number
+  readonly audioVoiceCount: number
+  readonly effectPoolActive: number
+}
+
 export interface M2WorkbenchModel {
   readonly sessionId: string
   readonly status: M2WorkbenchStatus
@@ -45,7 +70,13 @@ export interface M2WorkbenchModel {
   readonly fireSize: number
   readonly fireSizeRange: M2FireSizeRange
   readonly isSpraying: boolean
+  readonly furnaceTemperature: number
+  readonly furnaceTemperatureRange: M2FurnaceTemperatureRange
+  readonly furnaceTemperatureThresholds: M2FurnaceTemperatureThresholds
+  readonly furnaceTemperatureTrend: M2FurnaceTemperatureTrend
   readonly flameThrustEnabled: boolean
+  readonly audioVolume: number
+  readonly audioMuted: boolean
   readonly canFinish: boolean
   readonly lossWarningLevel: 0 | 1 | 2
   readonly caughtVolumes: Readonly<{
@@ -59,6 +90,8 @@ export interface M2WorkbenchModel {
     remainingEntityVolume: number
     slagQuantity: number
   }> | null
+  readonly failureInvestedMaterials: readonly string[]
+  readonly failurePresentationComplete: boolean
   readonly paused: boolean
   readonly restartConfirmation: M2RestartConfirmation
   readonly inventory: readonly M2InventoryBatchView[]
@@ -67,6 +100,7 @@ export interface M2WorkbenchModel {
   readonly activePearlCount: number
   readonly caughtPearlCount: number
   readonly interactionCount: number
+  readonly debug: M2WorkbenchDebugView
 }
 
 export interface M2WorkbenchTheme {
@@ -91,6 +125,8 @@ export interface CreateM2WorkbenchOptions {
   readonly onSelectFireSource: (fireSourceId: string) => void
   readonly onFireSizeChange: (fireSize: number) => void
   readonly onFlameThrustChange: (enabled: boolean) => void
+  readonly onAudioVolumeChange: (volume: number) => void
+  readonly onAudioMutedChange: (muted: boolean) => void
   readonly onPause: () => void
   readonly onResume: () => void
   readonly onRequestRestart: () => void
@@ -122,6 +158,12 @@ export interface M2WorkbenchView {
   readonly restartDialogOpen: boolean
   readonly completionDialogOpen: boolean
   readonly failureDialogOpen: boolean
+  readonly failureResultLabel: string
+  readonly failureResultTip: string
+  readonly temperatureStatusLabel: string
+  readonly temperatureLevel: 'residual' | 'warm' | 'blazing'
+  readonly temperatureTrend: M2FurnaceTemperatureTrend
+  readonly normalizedTemperatureIntensity: number
   readonly lossWarningMessage: string
   readonly liveMessage: string
 }
@@ -152,6 +194,44 @@ function isActiveStatus(status: M2WorkbenchStatus): boolean {
   return status === 'ready' || status === 'extracting'
 }
 
+function normalizedTemperatureIntensity(
+  temperature: number,
+  range: M2FurnaceTemperatureRange,
+): number {
+  if (
+    !Number.isFinite(temperature) ||
+    !Number.isFinite(range.min) ||
+    !Number.isFinite(range.max) ||
+    range.max <= range.min
+  ) {
+    return 0
+  }
+  return Math.max(
+    0,
+    Math.min(1, (temperature - range.min) / (range.max - range.min)),
+  )
+}
+
+function temperatureLevel(
+  intensity: number,
+  thresholds: M2FurnaceTemperatureThresholds,
+): M2WorkbenchView['temperatureLevel'] {
+  if (intensity >= thresholds.blazingRatio) return 'blazing'
+  if (intensity >= thresholds.warmRatio) return 'warm'
+  return 'residual'
+}
+
+function temperatureStatusLabel(
+  trend: M2FurnaceTemperatureTrend,
+  level: M2WorkbenchView['temperatureLevel'],
+): string {
+  if (trend === 'heating') return '温升'
+  if (trend === 'cooling') return '回落'
+  if (level === 'blazing') return '炽盛稳定'
+  if (level === 'warm') return '温火稳定'
+  return '余温稳定'
+}
+
 export function deriveM2WorkbenchView(
   model: M2WorkbenchModel,
 ): M2WorkbenchView {
@@ -159,16 +239,44 @@ export function deriveM2WorkbenchView(
   const restartDialogOpen = model.restartConfirmation === 'open'
   const controlsDisabled = !active || model.paused || restartDialogOpen
   const fireSourceLocked = model.equippedFireSourceId !== null
+  const temperatureIntensity = normalizedTemperatureIntensity(
+    model.furnaceTemperature,
+    model.furnaceTemperatureRange,
+  )
+  const furnaceTemperatureLevel = temperatureLevel(
+    temperatureIntensity,
+    model.furnaceTemperatureThresholds,
+  )
   const selectedMaterialAvailable = model.inventory.some(
     (batch) =>
       batch.batchId === model.selectedMaterialBatchId && batch.servings > 0,
   )
+  const investedMaterialNames = [...new Set(
+    model.failureInvestedMaterials.filter((name) => name.trim().length > 0),
+  )]
+  const failureResultLabel =
+    model.failureResult === null
+      ? ''
+      : `药渣 × ${formatNumber(model.failureResult.slagQuantity)}`
+  const failureResultTip =
+    model.failureResult === null
+      ? ''
+      : `药渣；失败原因：药液流失过多；投入材料：${
+          investedMaterialNames.length === 0
+            ? '无'
+            : investedMaterialNames.join('、')
+        }；${failureResultLabel}`
   let liveMessage: string
 
   if (restartDialogOpen) {
     liveMessage = '已暂停，等待确认是否重开。'
   } else if (model.status === 'completed') {
     liveMessage = '本炉萃取完成，可以再来一炉。'
+  } else if (
+    model.status === 'failed' &&
+    !model.failurePresentationComplete
+  ) {
+    liveMessage = '药性正在化渣，请稍候。'
   } else if (model.status === 'failed') {
     liveMessage = '本炉萃取失败。'
   } else if (model.paused) {
@@ -201,7 +309,17 @@ export function deriveM2WorkbenchView(
     finishDisabled: controlsDisabled || !model.canFinish,
     restartDialogOpen,
     completionDialogOpen: model.status === 'completed',
-    failureDialogOpen: model.status === 'failed',
+    failureDialogOpen:
+      model.status === 'failed' && model.failurePresentationComplete,
+    failureResultLabel,
+    failureResultTip,
+    temperatureStatusLabel: temperatureStatusLabel(
+      model.furnaceTemperatureTrend,
+      furnaceTemperatureLevel,
+    ),
+    temperatureLevel: furnaceTemperatureLevel,
+    temperatureTrend: model.furnaceTemperatureTrend,
+    normalizedTemperatureIntensity: temperatureIntensity,
     lossWarningMessage:
       model.lossWarningLevel === 2
         ? '药性濒临溃散，尽快收束火势。'
@@ -261,13 +379,14 @@ export function createM2Workbench(
   const titleGroup = createElement(document, 'div', 'm2-header__title')
   const title = document.createElement('h1')
   title.id = 'm2-page-title'
-  title.textContent = '炼丹萃取'
+  title.textContent = '炼丹·萃灵录'
   const statusBadge = createElement(document, 'span', 'm2-status-badge')
   statusBadge.dataset.statusLabel = ''
   titleGroup.append(title, statusBadge)
 
   const sessionMeta = createElement(document, 'p', 'm2-header__meta')
   sessionMeta.dataset.sessionStatus = ''
+  sessionMeta.textContent = '观火 · 投药 · 收珠'
 
   const headerActions = createElement(document, 'div', 'm2-header__actions')
   headerActions.dataset.uiInteractive = ''
@@ -291,7 +410,37 @@ export function createM2Workbench(
   const gameHost = createElement(document, 'div', 'm2-game-host')
   gameHost.dataset.gameHost = ''
   gameHost.setAttribute('aria-hidden', 'true')
-  stage.append(instructions, gameHost)
+  const failureResult = createElement(document, 'div', 'm5-failure-result')
+  failureResult.dataset.failureResult = ''
+  failureResult.hidden = true
+  failureResult.setAttribute('tabindex', '0')
+  failureResult.setAttribute('role', 'img')
+  const failureResultMark = createElement(
+    document,
+    'span',
+    'm5-failure-result__mark',
+  )
+  failureResultMark.setAttribute('aria-hidden', 'true')
+  const failureResultLabel = createElement(
+    document,
+    'strong',
+    'm5-failure-result__label',
+  )
+  const failureResultTip = createElement(
+    document,
+    'span',
+    'm5-failure-result__tip',
+  )
+  failureResultTip.id = 'm5-failure-result-tip'
+  failureResultTip.dataset.failureResultTip = ''
+  failureResultTip.setAttribute('role', 'tooltip')
+  failureResult.setAttribute('aria-describedby', failureResultTip.id)
+  failureResult.append(
+    failureResultMark,
+    failureResultLabel,
+    failureResultTip,
+  )
+  stage.append(instructions, gameHost, failureResult)
 
   const panel = createElement(document, 'aside', 'm2-panel')
   panel.setAttribute('aria-label', '炼制操作与状态')
@@ -330,6 +479,26 @@ export function createM2Workbench(
   fireSizeInput.dataset.uiInteractive = ''
   fireSizeRow.append(fireSizeLabel, fireSizeOutput)
 
+  const temperature = createElement(document, 'div', 'm5-temperature')
+  temperature.dataset.temperaturePanel = ''
+  const temperatureCopy = createElement(document, 'div', 'm5-temperature__copy')
+  const temperatureName = createElement(document, 'span', 'm5-temperature__name')
+  temperatureName.textContent = '丹炉火候'
+  const temperatureStatus = createElement(document, 'strong', 'm5-temperature__status')
+  temperatureStatus.dataset.temperatureStatus = ''
+  const temperatureHelp = createElement(document, 'span', 'm5-temperature__help')
+  temperatureHelp.textContent = '观察火色，调节火势。'
+  temperatureCopy.append(temperatureName, temperatureStatus, temperatureHelp)
+  const temperatureMeter = createElement(document, 'div', 'm5-temperature__meter')
+  temperatureMeter.dataset.furnaceTemperature = ''
+  temperatureMeter.dataset.temperatureIntensity = ''
+  temperatureMeter.setAttribute('role', 'progressbar')
+  temperatureMeter.setAttribute('aria-label', '丹炉火候')
+  const temperatureFill = createElement(document, 'span', 'm5-temperature__fill')
+  temperatureFill.setAttribute('aria-hidden', 'true')
+  temperatureMeter.append(temperatureFill)
+  temperature.append(temperatureCopy, temperatureMeter)
+
   const thrustRow = createElement(document, 'label', 'm3-thrust-row')
   thrustRow.htmlFor = 'm3-flame-thrust'
   const thrustCopy = createElement(document, 'span', 'm3-thrust-row__copy')
@@ -344,6 +513,39 @@ export function createM2Workbench(
   thrustInput.dataset.flameThrust = ''
   thrustInput.dataset.uiInteractive = ''
   thrustRow.append(thrustCopy, thrustInput)
+
+  const audioControls = createElement(document, 'div', 'm5-audio-controls')
+  audioControls.dataset.audioControls = ''
+  const audioVolumeLabel = document.createElement('label')
+  audioVolumeLabel.htmlFor = 'm5-audio-volume'
+  audioVolumeLabel.textContent = '总音量'
+  const audioVolumeOutput = document.createElement('output')
+  audioVolumeOutput.htmlFor = 'm5-audio-volume'
+  audioVolumeOutput.dataset.audioVolumeOutput = ''
+  const audioVolumeInput = document.createElement('input')
+  audioVolumeInput.id = 'm5-audio-volume'
+  audioVolumeInput.type = 'range'
+  audioVolumeInput.min = '0'
+  audioVolumeInput.max = '1'
+  audioVolumeInput.step = '0.05'
+  audioVolumeInput.dataset.audioVolume = ''
+  audioVolumeInput.dataset.uiInteractive = ''
+  const audioMutedLabel = createElement(document, 'label', 'm5-audio-muted')
+  audioMutedLabel.htmlFor = 'm5-audio-muted'
+  const audioMutedText = document.createElement('span')
+  audioMutedText.textContent = '静音'
+  const audioMutedInput = document.createElement('input')
+  audioMutedInput.id = 'm5-audio-muted'
+  audioMutedInput.type = 'checkbox'
+  audioMutedInput.dataset.audioMuted = ''
+  audioMutedInput.dataset.uiInteractive = ''
+  audioMutedLabel.append(audioMutedText, audioMutedInput)
+  audioControls.append(
+    audioVolumeLabel,
+    audioVolumeOutput,
+    audioVolumeInput,
+    audioMutedLabel,
+  )
 
   const metrics = createElement(document, 'dl', 'm2-metrics')
   const metricNodes = new Map<string, HTMLElement>()
@@ -366,7 +568,9 @@ export function createM2Workbench(
     fireSizeHeading,
     fireSizeRow,
     fireSizeInput,
+    temperature,
     thrustRow,
+    audioControls,
     metrics,
   )
 
@@ -419,7 +623,35 @@ export function createM2Workbench(
   lossWarning.hidden = true
   lossWarning.setAttribute('role', 'status')
   lossWarning.setAttribute('aria-live', 'assertive')
-  actionSection.append(lossWarning, finishButton, statusLive)
+  const debugPanel = createElement(document, 'details', 'm5-debug')
+  debugPanel.dataset.debugPanel = ''
+  const debugSummary = document.createElement('summary')
+  debugSummary.textContent = '调试信息'
+  const debugGrid = createElement(document, 'dl', 'm5-debug__grid')
+  const debugNodes = new Map<string, HTMLElement>()
+  for (const [key, label] of [
+    ['session', '炉次'],
+    ['tick', 'Tick'],
+    ['flow', '流场代'],
+    ['pause', '暂停因'],
+    ['fire', '火焰态'],
+    ['failure', '失败态'],
+    ['voices', '声音'],
+    ['effects', '特效'],
+    ['simulation', '模拟指纹'],
+    ['presentation', '表现指纹'],
+  ] as const) {
+    const row = document.createElement('div')
+    const term = document.createElement('dt')
+    term.textContent = label
+    const value = document.createElement('dd')
+    value.dataset.debug = key
+    row.append(term, value)
+    debugGrid.append(row)
+    debugNodes.set(key, value)
+  }
+  debugPanel.append(debugSummary, debugGrid)
+  actionSection.append(lossWarning, finishButton, statusLive, debugPanel)
 
   panel.append(fireSection, fireSizeSection, inventorySection, actionSection)
   layout.append(stage, panel)
@@ -476,12 +708,11 @@ export function createM2Workbench(
   completionCard.append(completionTitle, completionCopy, againButton)
   completionDialog.append(completionCard)
 
-  const failureDialog = createElement(document, 'div', 'm2-dialog m3-failure-dialog')
+  const failureDialog = createElement(document, 'div', 'm3-failure-dialog')
   failureDialog.dataset.failureDialog = ''
   failureDialog.dataset.uiInteractive = ''
   failureDialog.hidden = true
-  failureDialog.setAttribute('role', 'dialog')
-  failureDialog.setAttribute('aria-modal', 'true')
+  failureDialog.setAttribute('role', 'region')
   failureDialog.setAttribute('aria-labelledby', 'm3-failure-title')
   const failureCard = createElement(document, 'section', 'm2-dialog__card m3-failure-card')
   const failureEyebrow = createElement(document, 'span', 'm3-failure-card__eyebrow')
@@ -574,12 +805,15 @@ export function createM2Workbench(
           : stage
     }
     activeDialog = next
-    header.inert = true
-    layout.inert = true
+    const modal = next !== 'failure'
+    header.inert = modal
+    layout.inert = modal
     const element = dialogElement(next)
     element.hidden = false
     queueMicrotask(() => {
-      if (!destroyed && activeDialog === next) dialogPreferredFocus(next).focus()
+      if (destroyed || activeDialog !== next) return
+      if (next === 'failure') failureResult.focus()
+      else dialogPreferredFocus(next).focus()
     })
   }
 
@@ -649,6 +883,11 @@ export function createM2Workbench(
     } else if (event.target === thrustInput && !thrustInput.disabled) {
       pendingFlameThrust = thrustInput.checked
       options.onFlameThrustChange(thrustInput.checked)
+    } else if (event.target === audioVolumeInput) {
+      const value = Number(audioVolumeInput.value)
+      if (Number.isFinite(value)) options.onAudioVolumeChange(value)
+    } else if (event.target === audioMutedInput) {
+      options.onAudioMutedChange(audioMutedInput.checked)
     }
   }
 
@@ -671,6 +910,7 @@ export function createM2Workbench(
       options.onCancelRestart()
       return
     }
+    if (activeDialog === 'failure') return
     if (event.key !== 'Tab') return
 
     const focusable = Array.from(
@@ -876,6 +1116,7 @@ export function createM2Workbench(
 
   function update(model: M2WorkbenchModel): void {
     if (destroyed) return
+    const sessionChanged = currentModel.sessionId !== model.sessionId
     const focusedFireSourceId =
       document.activeElement instanceof HTMLButtonElement
         ? document.activeElement.dataset.fireSourceId
@@ -885,6 +1126,7 @@ export function createM2Workbench(
         ? document.activeElement.dataset.inventoryBatchId
         : undefined
     currentModel = model
+    if (sessionChanged) pendingFlameThrust = null
     const view = deriveM2WorkbenchView(model)
     shell.dataset.domainStatus = model.status
     shell.dataset.sessionId = model.sessionId
@@ -893,9 +1135,11 @@ export function createM2Workbench(
     shell.dataset.isSpraying = String(model.isSpraying)
     shell.dataset.canFinish = String(model.canFinish)
     shell.dataset.paused = String(model.paused)
+    shell.dataset.failurePresentationComplete = String(
+      model.failurePresentationComplete,
+    )
     statusBadge.textContent = view.statusLabel
     statusBadge.dataset.status = model.status
-    sessionMeta.textContent = `炉次 ${model.sessionId} / Tick ${model.tick}`
     pauseButton.textContent = view.pauseLabel
     pauseButton.dataset.action = view.pauseAction
     pauseButton.disabled = view.pauseDisabled
@@ -909,11 +1153,57 @@ export function createM2Workbench(
     fireSizeInput.setAttribute('aria-valuetext', `${formatNumber(model.fireSize)} 档`)
     fireSizeOutput.value = formatNumber(model.fireSize)
     fireSizeOutput.textContent = formatNumber(model.fireSize)
+    const minimumTemperature = model.furnaceTemperatureRange.min
+    const maximumTemperature = model.furnaceTemperatureRange.max
+    const clampedTemperature = Math.max(
+      minimumTemperature,
+      Math.min(maximumTemperature, model.furnaceTemperature),
+    )
+    temperatureStatus.textContent = view.temperatureStatusLabel
+    temperature.dataset.temperatureLevel = view.temperatureLevel
+    temperature.dataset.temperatureTrend = view.temperatureTrend
+    temperatureMeter.dataset.furnaceTemperature = String(clampedTemperature)
+    temperatureMeter.dataset.temperatureIntensity = String(
+      view.normalizedTemperatureIntensity,
+    )
+    temperatureMeter.setAttribute('aria-valuemin', String(minimumTemperature))
+    temperatureMeter.setAttribute('aria-valuemax', String(maximumTemperature))
+    temperatureMeter.setAttribute('aria-valuenow', String(clampedTemperature))
+    temperatureMeter.setAttribute('aria-valuetext', view.temperatureStatusLabel)
+    temperatureFill.style.height = `${view.normalizedTemperatureIntensity * 100}%`
     if (pendingFlameThrust === model.flameThrustEnabled) {
       pendingFlameThrust = null
     }
     thrustInput.checked = pendingFlameThrust ?? model.flameThrustEnabled
     thrustInput.disabled = view.controlsDisabled
+    const audioVolume = Math.max(0, Math.min(1, model.audioVolume))
+    audioVolumeInput.value = String(audioVolume)
+    audioVolumeInput.setAttribute('aria-valuetext', `${Math.round(audioVolume * 100)}%`)
+    audioVolumeOutput.value = `${Math.round(audioVolume * 100)}%`
+    audioVolumeOutput.textContent = `${Math.round(audioVolume * 100)}%`
+    audioMutedInput.checked = model.audioMuted
+    audioVolumeInput.disabled = view.controlsDisabled
+    audioMutedInput.disabled = view.controlsDisabled
+    audioControls.dataset.muted = String(model.audioMuted)
+    debugNodes.get('session')!.textContent = model.sessionId
+    debugNodes.get('tick')!.textContent = String(model.tick)
+    debugNodes.get('flow')!.textContent = String(model.debug.flowGeneration)
+    debugNodes.get('pause')!.textContent =
+      model.debug.pauseReasons.length === 0
+        ? '无'
+        : model.debug.pauseReasons.join(' / ')
+    debugNodes.get('fire')!.textContent =
+      `${model.debug.firePresentationState} · ${model.debug.fireVisualIntensity.toFixed(2)}`
+    debugNodes.get('failure')!.textContent =
+      `${model.debug.failurePresentationState} · ${model.debug.failurePresentationProgress.toFixed(2)}`
+    debugNodes.get('voices')!.textContent = String(model.debug.audioVoiceCount)
+    debugNodes.get('effects')!.textContent = String(model.debug.effectPoolActive)
+    const simulationFingerprint = model.debug.simulationContentFingerprint
+    const presentationFingerprint = model.debug.presentationContentFingerprint
+    debugNodes.get('simulation')!.textContent = simulationFingerprint.slice(0, 12)
+    debugNodes.get('simulation')!.title = simulationFingerprint
+    debugNodes.get('presentation')!.textContent = presentationFingerprint.slice(0, 12)
+    debugNodes.get('presentation')!.title = presentationFingerprint
     metricNodes.get('remaining')!.textContent = formatNumber(
       model.materialRemaining,
     )
@@ -988,9 +1278,18 @@ export function createM2Workbench(
         : '，未收得额外药渣。')
     failureCopy.textContent = model.failureResult === null
       ? '损耗超过药性承受极限。'
-      : `损耗超过药性承受极限，剩余炉料结为药渣 × ${formatNumber(
-          model.failureResult.slagQuantity,
-        )}。`
+      : view.failureResultTip
+    const failureResultVisible =
+      model.status === 'failed' &&
+      model.failurePresentationComplete &&
+      model.failureResult !== null
+    failureResult.hidden = !failureResultVisible
+    failureResultLabel.textContent = view.failureResultLabel
+    failureResultTip.textContent = view.failureResultTip
+    failureResult.setAttribute(
+      'aria-label',
+      view.failureResultLabel || '失败结果',
+    )
 
     const nextDialog = view.restartDialogOpen
       ? 'restart'

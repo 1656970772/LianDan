@@ -12,10 +12,24 @@
       "maxItems": 64,
       "items": {
         "type": "object",
-        "required": ["id", "nameZh", "origin", "halfAngleDegrees", "minWidth", "maxWidth"],
+        "required": [
+          "id",
+          "nameZh",
+          "descriptionZh",
+          "origin",
+          "halfAngleDegrees",
+          "minWidth",
+          "maxWidth",
+          "baseTemperature",
+          "maximumTemperature",
+          "heatingRatePerSecond",
+          "coolingRatePerSecond",
+          "temperatureCurve"
+        ],
         "properties": {
           "id": { "$ref": "#/$defs/stableId" },
           "nameZh": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "descriptionZh": { "type": "string", "minLength": 1, "maxLength": 256 },
           "origin": { "$ref": "#/$defs/point" },
           "halfAngleDegrees": {
             "type": "number",
@@ -23,7 +37,12 @@
             "maximum": 90
           },
           "minWidth": { "type": "number", "exclusiveMinimum": 0, "maximum": 4096 },
-          "maxWidth": { "type": "number", "exclusiveMinimum": 0, "maximum": 4096 }
+          "maxWidth": { "type": "number", "exclusiveMinimum": 0, "maximum": 4096 },
+          "baseTemperature": { "type": "number", "minimum": 0, "maximum": 100 },
+          "maximumTemperature": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+          "heatingRatePerSecond": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+          "coolingRatePerSecond": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+          "temperatureCurve": { "type": "string", "const": "linear" }
         },
         "additionalProperties": false
       }

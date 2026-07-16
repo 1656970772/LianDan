@@ -34,8 +34,25 @@ body {
 body[data-app-mode="technical"][data-app-state="ready"],
 body[data-app-mode="technical"][data-app-state="game-loading"],
 body[data-app-mode="m2"][data-app-state="ready"],
-body[data-app-mode="m2"][data-app-state="game-loading"] {
+body[data-app-mode="m2"][data-app-state="game-loading"],
+body[data-app-mode="m5-performance"][data-app-state="ready"],
+body[data-app-mode="m5-performance"][data-app-state="game-loading"] {
   overflow: hidden;
+}
+
+body[data-app-mode="m5-performance"] #app,
+.m5-performance-host {
+  min-width: 0;
+  min-height: 0;
+}
+
+.m5-performance-host {
+  display: block;
+  overflow: hidden;
+}
+
+.m5-performance-host canvas {
+  display: block;
 }
 
 @media (max-width: 1000px) {

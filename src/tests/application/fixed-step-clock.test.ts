@@ -80,6 +80,26 @@ describe('FixedStepClock', () => {
     expect(advance).toHaveBeenCalledTimes(1)
   })
 
+  it('rebase 只清空墙钟基线与累加器，保留已有 metrics', () => {
+    const clock = new FixedStepClock(CLOCK_OPTIONS)
+    const advance = vi.fn()
+    clock.frame(0, advance)
+    clock.frame(34, advance)
+
+    clock.rebase()
+
+    expect(clock.frame(10_034, advance).advancedTickCount).toBe(0)
+    expect(clock.getMetrics()).toEqual({
+      totalAdvancedTickCount: 1,
+      droppedTickCount: 0,
+    })
+    expect(clock.frame(10_068, advance).advancedTickCount).toBe(1)
+    expect(clock.getMetrics()).toEqual({
+      totalAdvancedTickCount: 2,
+      droppedTickCount: 0,
+    })
+  })
+
   it('拒绝非法或倒退时间戳，不改变既有计数', () => {
     const clock = new FixedStepClock(CLOCK_OPTIONS)
     const advance = vi.fn()

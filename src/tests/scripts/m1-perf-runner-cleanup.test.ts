@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -20,6 +21,21 @@ function neverExitingChild(killResult: boolean): ChildProcess {
 }
 
 describe('M1 性能 preview 清理', () => {
+  it('headed Chromium 运行器始终携带物理静音参数且保留 launch options', () => {
+    const source = readFileSync(
+      new URL('../../../scripts/run-perf-scenario.ts', import.meta.url),
+      'utf8',
+    )
+    const launch = source.slice(
+      source.indexOf('browser = await chromium.launch({'),
+      source.indexOf('report.browser = {'),
+    )
+
+    expect(launch).toContain("args: ['--mute-audio']")
+    expect(launch).toContain('headless: false')
+    expect(launch).toContain('executablePath,')
+  })
+
   it('TERM 与 KILL 都无法送达且子进程从未退出时必须失败', async () => {
     const child = neverExitingChild(false)
 

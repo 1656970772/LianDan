@@ -37,6 +37,8 @@ export function createSimulationFingerprintInput(
             volumePerTick: config.parameters.dissolution.volumePerTick,
             exposureProbeDistance:
               config.parameters.dissolution.exposureProbeDistance,
+            frontLaneWidthCells:
+              config.parameters.dissolution.frontLaneWidthCells,
           },
           loss: {
             naturalRatePerMinute: config.parameters.loss.naturalRatePerMinute,

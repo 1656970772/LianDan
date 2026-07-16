@@ -97,6 +97,10 @@ export class FixedStepClock {
   setPaused(paused: boolean): void {
     if (this.#paused === paused) return
     this.#paused = paused
+    this.rebase()
+  }
+
+  rebase(): void {
     this.#lastFrameTimeMilliseconds = null
     this.#accumulatorMilliseconds = 0
   }

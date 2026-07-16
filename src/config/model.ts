@@ -82,6 +82,7 @@ export interface NormalizedParameters {
   readonly dissolution: Readonly<{
     readonly volumePerTick: number
     readonly exposureProbeDistance: number
+    readonly frontLaneWidthCells: number
   }>
   readonly loss: Readonly<{
     readonly naturalRatePerMinute: number

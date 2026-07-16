@@ -16,6 +16,7 @@ export function loadM2GameplayTestSchemaBundle(): M2GameplaySchemaBundle {
     pearlTypes: readSchema('m2-pearl-types.schema.json'),
     collector: readSchema('m2-collector.schema.json'),
     interactions: readSchema('m2-interactions.schema.json'),
+    presentation: readSchema('m2-presentation.schema.json'),
   }
 }
 

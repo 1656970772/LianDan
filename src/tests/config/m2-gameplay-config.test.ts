@@ -6,6 +6,7 @@ import {
   type RawM2GameplayConfig,
 } from '../../config/m2-gameplay-validate'
 import { loadM2GameplayTestSchemaBundle } from './schema-fixture'
+import { validM5Presentation } from '../fixtures/m5-presentation'
 
 const baseConfig: NormalizedConfig = {
   schemaVersion: 1,
@@ -24,7 +25,11 @@ const baseConfig: NormalizedConfig = {
       mergeRate: 0.15,
       fullObstacleThreshold: 0.95,
     },
-    dissolution: { volumePerTick: 0.18, exposureProbeDistance: 18 },
+    dissolution: {
+      volumePerTick: 0.18,
+      exposureProbeDistance: 18,
+      frontLaneWidthCells: 1,
+    },
     loss: {
       naturalRatePerMinute: 0.01,
       warningThresholds: [0.5, 0.65],
@@ -44,6 +49,7 @@ const baseConfig: NormalizedConfig = {
 
 function validPearlTypes() {
   const shared = {
+    spawnClearance: 2,
     color: '#78E6D0',
     outlineColor: '#D9FFF6',
     spawnVelocity: { minX: -45, maxX: 45, minY: 60, maxY: 120 },
@@ -75,6 +81,7 @@ function rawM2(): RawM2GameplayConfig {
         fireSources: '/config/m2/fire-sources.json',
         pearlTypes: '/config/m2/pearl-types.json',
         collector: '/config/m2/collector.json',
+        presentation: '/config/m2/presentation.json',
       },
     },
     prototype: {
@@ -85,11 +92,14 @@ function rawM2(): RawM2GameplayConfig {
         logicalWidth: 1600,
         logicalHeight: 900,
         materialPlacement: {
-          centerX: 800,
-          centerY: 300,
-          size: 180,
-          offsetPerInstance: { x: 200, y: 0 },
-          rotationDegreesPerInstance: 2,
+          visibleLongEdge: 180,
+          minimumGap: 0,
+          usableRegion: { left: 0, top: 0, right: 1600, bottom: 900 },
+          slots: [
+            { centerX: 800, centerY: 300, rotationDegrees: 0 },
+            { centerX: 1000, centerY: 300, rotationDegrees: 2 },
+            { centerX: 1200, centerY: 300, rotationDegrees: 4 },
+          ],
         },
         availableFireSourceIds: ['basic-fire'],
         initialFireSize: 32,
@@ -126,10 +136,16 @@ function rawM2(): RawM2GameplayConfig {
           {
             id: 'basic-fire',
             nameZh: '凡火',
+            descriptionZh: '丹炉常用的基础火种。',
             origin: { x: 800, y: 700 },
             halfAngleDegrees: 70,
             minWidth: 24,
             maxWidth: 280,
+            baseTemperature: 8,
+            maximumTemperature: 100,
+            heatingRatePerSecond: 24,
+            coolingRatePerSecond: 10,
+            temperatureCurve: 'linear',
           },
         ],
       },
@@ -156,6 +172,10 @@ function rawM2(): RawM2GameplayConfig {
         maxSpeed: 500,
       },
     },
+    presentation: {
+      filePath: '/config/m2/presentation.json',
+      value: validM5Presentation(),
+    },
   }
 }
 
@@ -175,12 +195,25 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
           availableFireSourceIds: ['basic-fire'],
           fireSizeWheelStep: 4,
           materialPlacement: {
-            offsetPerInstance: { x: 200, y: 0 },
-            rotationDegreesPerInstance: 2,
+            slots: [
+              { centerX: 800, centerY: 300, rotationDegrees: 0 },
+              { centerX: 1000, centerY: 300, rotationDegrees: 2 },
+              { centerX: 1200, centerY: 300, rotationDegrees: 4 },
+            ],
           },
           inventoryBatches: [{ materialDefinitionId: 'moon-leaf' }],
         },
-        fireSources: [{ id: 'basic-fire' }],
+        fireSources: [
+          {
+            id: 'basic-fire',
+            descriptionZh: '丹炉常用的基础火种。',
+            baseTemperature: 8,
+            maximumTemperature: 100,
+            heatingRatePerSecond: 24,
+            coolingRatePerSecond: 10,
+            temperatureCurve: 'linear',
+          },
+        ],
         pearlTypes: expect.any(Array),
         collector: { initialX: 800 },
       },
@@ -196,7 +229,9 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
     if (result.ok) {
       expect(Object.isFrozen(result.config)).toBe(true)
       expect(Object.isFrozen(result.config.prototype.materialPlacement)).toBe(true)
-      expect(Object.isFrozen(result.config.prototype.materialPlacement.offsetPerInstance)).toBe(true)
+      expect(Object.isFrozen(result.config.prototype.materialPlacement.usableRegion)).toBe(true)
+      expect(Object.isFrozen(result.config.prototype.materialPlacement.slots)).toBe(true)
+      expect(Object.isFrozen(result.config.prototype.materialPlacement.slots[0])).toBe(true)
       expect(Object.isFrozen(result.config.prototype.theme.colors)).toBe(true)
       expect(Object.isFrozen(result.config.fireSources[0])).toBe(true)
     }
@@ -205,14 +240,19 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
   it.each([
     ['fireSizeWheelStep', 0, '/fireSizeWheelStep'],
     ['materialRestitution', 1.01, '/pearlTypes/0/materialRestitution'],
+    ['spawnClearance', -0.01, '/pearlTypes/0/spawnClearance'],
   ] as const)('拒绝越界的 %s', (field, value, fieldPath) => {
     const raw = rawM2()
     if (field === 'fireSizeWheelStep') {
       ;(raw.prototype.value as { fireSizeWheelStep: number }).fireSizeWheelStep = value
-    } else {
+    } else if (field === 'materialRestitution') {
       ;(raw.pearlTypes.value as {
         pearlTypes: Array<{ materialRestitution: number }>
       }).pearlTypes[0]!.materialRestitution = value
+    } else {
+      ;(raw.pearlTypes.value as {
+        pearlTypes: Array<{ spawnClearance: number }>
+      }).pearlTypes[0]!.spawnClearance = value
     }
 
     const result = validateAndNormalizeM2GameplayConfig(
@@ -224,6 +264,30 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
     expect(result).toMatchObject({
       ok: false,
       issues: [expect.objectContaining({ code: 'CONFIG_VALUE_OUT_OF_RANGE', fieldPath })],
+    })
+  })
+
+  it('拒绝缺失的 spawnClearance，不在运行时静默补默认值', () => {
+    const raw = rawM2()
+    delete (raw.pearlTypes.value as {
+      pearlTypes: Array<{ spawnClearance?: number }>
+    }).pearlTypes[0]!.spawnClearance
+
+    const result = validateAndNormalizeM2GameplayConfig(
+      raw,
+      loadM2GameplayTestSchemaBundle(),
+      baseConfig,
+      '/config/config-set.json',
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          code: 'CONFIG_REQUIRED_FIELD',
+          fieldPath: '/pearlTypes/0/spawnClearance',
+        }),
+      ],
     })
   })
 
@@ -320,27 +384,22 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
     expect(result).toMatchObject({ ok: true })
   })
 
-  it('允许有意义的部分堆叠，但拒绝多份材料完全同位', () => {
+  it('拒绝多份材料的权威摆放发生内部相交', () => {
     const raw = rawM2()
     const prototype = raw.prototype.value as {
       materialPlacement: {
-        offsetPerInstance: { x: number; y: number }
-        rotationDegreesPerInstance: number
+        slots: Array<{
+          centerX: number
+          centerY: number
+          rotationDegrees: number
+        }>
       }
     }
-    prototype.materialPlacement.offsetPerInstance = { x: 120, y: 0 }
-
-    expect(
-      validateAndNormalizeM2GameplayConfig(
-        raw,
-        loadM2GameplayTestSchemaBundle(),
-        baseConfig,
-        '/config/config-set.json',
-      ),
-    ).toMatchObject({ ok: true })
-
-    prototype.materialPlacement.offsetPerInstance = { x: 0, y: 0 }
-    prototype.materialPlacement.rotationDegreesPerInstance = 0
+    prototype.materialPlacement.slots[1] = {
+      centerX: 900,
+      centerY: 300,
+      rotationDegrees: 0,
+    }
 
     const result = validateAndNormalizeM2GameplayConfig(
       raw,
@@ -354,7 +413,137 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
       issues: [
         expect.objectContaining({
           code: 'CONFIG_SCHEMA_VIOLATION',
-          fieldPath: '/materialPlacement/offsetPerInstance',
+          fieldPath: '/materialPlacement/slots/1',
+        }),
+      ],
+    })
+  })
+
+  it('轴对齐槽位允许中心距等于 size，减去 epsilon 后拒绝', () => {
+    const raw = rawM2()
+    const placement = (raw.prototype.value as {
+      materialPlacement: {
+        visibleLongEdge: number
+        slots: Array<{
+          centerX: number
+          centerY: number
+          rotationDegrees: number
+        }>
+      }
+    }).materialPlacement
+    placement.slots = [
+      { centerX: 800, centerY: 300, rotationDegrees: 0 },
+      {
+        centerX: 800 + placement.visibleLongEdge,
+        centerY: 300,
+        rotationDegrees: 0,
+      },
+      {
+        centerX: 800 + placement.visibleLongEdge * 2,
+        centerY: 300,
+        rotationDegrees: 0,
+      },
+    ]
+
+    expect(
+      validateAndNormalizeM2GameplayConfig(
+        raw,
+        loadM2GameplayTestSchemaBundle(),
+        baseConfig,
+        '/config/config-set.json',
+      ),
+    ).toMatchObject({ ok: true })
+
+    placement.slots[1]!.centerX -= 1e-6
+    expect(
+      validateAndNormalizeM2GameplayConfig(
+        raw,
+        loadM2GameplayTestSchemaBundle(),
+        baseConfig,
+        '/config/config-set.json',
+      ),
+    ).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          fieldPath: '/materialPlacement/slots/1',
+        }),
+      ],
+    })
+  })
+
+  it('旋转槽位允许 OBB 精确接触，向内移动 epsilon 后拒绝', () => {
+    const raw = rawM2()
+    const placement = (raw.prototype.value as {
+      materialPlacement: {
+        visibleLongEdge: number
+        slots: Array<{
+          centerX: number
+          centerY: number
+          rotationDegrees: number
+        }>
+      }
+    }).materialPlacement
+    const contactDistance =
+      placement.visibleLongEdge * 0.5 +
+      placement.visibleLongEdge * 0.5 * Math.SQRT2
+    placement.slots = [
+      { centerX: 400, centerY: 300, rotationDegrees: 0 },
+      {
+        centerX: 400 + contactDistance,
+        centerY: 300,
+        rotationDegrees: 45,
+      },
+      { centerX: 1100, centerY: 300, rotationDegrees: 0 },
+    ]
+
+    expect(
+      validateAndNormalizeM2GameplayConfig(
+        raw,
+        loadM2GameplayTestSchemaBundle(),
+        baseConfig,
+        '/config/config-set.json',
+      ),
+    ).toMatchObject({ ok: true })
+
+    placement.slots[1]!.centerX -= 1e-6
+    expect(
+      validateAndNormalizeM2GameplayConfig(
+        raw,
+        loadM2GameplayTestSchemaBundle(),
+        baseConfig,
+        '/config/config-set.json',
+      ),
+    ).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          fieldPath: '/materialPlacement/slots/1',
+        }),
+      ],
+    })
+  })
+
+  it('拒绝槽位数少于库存总份数', () => {
+    const raw = rawM2()
+    const slots = (raw.prototype.value as {
+      materialPlacement: { slots: unknown[] }
+    }).materialPlacement.slots
+    slots.pop()
+
+    const result = validateAndNormalizeM2GameplayConfig(
+      raw,
+      loadM2GameplayTestSchemaBundle(),
+      baseConfig,
+      '/config/config-set.json',
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          fieldPath: '/materialPlacement/slots',
+          messageZh: expect.stringContaining('库存共 3 份'),
         }),
       ],
     })
@@ -416,16 +605,18 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
     const raw = rawM2()
     const placement = (raw.prototype.value as {
       materialPlacement: {
-        centerX: number
-        centerY: number
-        offsetPerInstance: { x: number; y: number }
-        rotationDegreesPerInstance: number
+        slots: Array<{
+          centerX: number
+          centerY: number
+          rotationDegrees: number
+        }>
       }
     }).materialPlacement
-    placement.centerX = 100
-    placement.centerY = 100
-    placement.offsetPerInstance = { x: 0, y: 0 }
-    placement.rotationDegreesPerInstance = 45
+    placement.slots[0] = {
+      centerX: 100,
+      centerY: 100,
+      rotationDegrees: 45,
+    }
 
     const result = validateAndNormalizeM2GameplayConfig(
       raw,
@@ -439,7 +630,7 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
       issues: [
         expect.objectContaining({
           filePath: '/config/m2/prototype.json',
-          fieldPath: '/materialPlacement',
+          fieldPath: '/materialPlacement/slots/0',
         }),
       ],
     })
@@ -538,6 +729,61 @@ describe('validateAndNormalizeM2GameplayConfig', () => {
     expect(result).toMatchObject({
       ok: false,
       issues: [expect.objectContaining({ fieldPath })],
+    })
+  })
+
+  it.each([
+    ['空说明', 'descriptionZh', '', '/fireSources/0/descriptionZh'],
+    ['负基础温度', 'baseTemperature', -1, '/fireSources/0/baseTemperature'],
+    ['基础温度超过标准化上限', 'baseTemperature', 101, '/fireSources/0/baseTemperature'],
+    ['最高温度超过标准化上限', 'maximumTemperature', 101, '/fireSources/0/maximumTemperature'],
+    ['零升温速率', 'heatingRatePerSecond', 0, '/fireSources/0/heatingRatePerSecond'],
+    ['升温速率超过标准化上限', 'heatingRatePerSecond', 101, '/fireSources/0/heatingRatePerSecond'],
+    ['零降温速率', 'coolingRatePerSecond', 0, '/fireSources/0/coolingRatePerSecond'],
+    ['降温速率超过标准化上限', 'coolingRatePerSecond', 101, '/fireSources/0/coolingRatePerSecond'],
+    ['未知温度曲线', 'temperatureCurve', 'quadratic', '/fireSources/0/temperatureCurve'],
+  ] as const)('拒绝火种%s', (_name, field, value, fieldPath) => {
+    const raw = rawM2()
+    const source = (raw.fireSources.value as {
+      fireSources: Array<Record<string, unknown>>
+    }).fireSources[0]!
+    source[field] = value
+
+    const result = validateAndNormalizeM2GameplayConfig(
+      raw,
+      loadM2GameplayTestSchemaBundle(),
+      baseConfig,
+      '/config/config-set.json',
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [expect.objectContaining({ fieldPath })],
+    })
+  })
+
+  it('拒绝不高于基础温度的最高温度', () => {
+    const raw = rawM2()
+    const source = (raw.fireSources.value as {
+      fireSources: Array<{ baseTemperature: number; maximumTemperature: number }>
+    }).fireSources[0]!
+    source.maximumTemperature = source.baseTemperature
+
+    const result = validateAndNormalizeM2GameplayConfig(
+      raw,
+      loadM2GameplayTestSchemaBundle(),
+      baseConfig,
+      '/config/config-set.json',
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [
+        expect.objectContaining({
+          code: 'CONFIG_SCHEMA_VIOLATION',
+          fieldPath: '/fireSources/0/maximumTemperature',
+        }),
+      ],
     })
   })
 })

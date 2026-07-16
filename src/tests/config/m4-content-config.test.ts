@@ -14,6 +14,15 @@ import { deriveBatchTags } from '../../config/tag-derivation.ts'
 import { validateAndNormalizeConfigSet, type RawConfigSet } from '../../config/validate.ts'
 import { applyRuleCommand, createDomainState } from '../../domain/model.ts'
 import { createM2RuntimeConfiguration } from '../../game/extraction/runtime-config.ts'
+import { ExtractionSimulation } from '../../simulation/extraction/extraction-simulation.ts'
+import {
+  deriveMaterialContentRectangle,
+  deriveMaterialFrameLayout,
+} from '../../shared/material-content-geometry.ts'
+import {
+  orientedMaterialRectangleIsWithinBounds,
+  orientedMaterialRectanglesHaveInteriorIntersection,
+} from '../../shared/material-placement-geometry.ts'
 import {
   loadM2GameplayTestSchemaBundle,
   loadTestSchemaBundle,
@@ -171,6 +180,131 @@ function compositionCodes(rgba: Uint8Array): Uint8Array {
 }
 
 describe('M4 完整内容与配置', () => {
+  it('正式配置提供 24 个完整位于区域内且两两不相交的显式槽位', async () => {
+    const loaded = await loadProduction()
+    const placement = loaded.config.gameplay.prototype.materialPlacement
+    const rectangles = placement.slots.map((slot) => ({
+      center: { x: slot.centerX, y: slot.centerY },
+      width: placement.visibleLongEdge,
+      height: placement.visibleLongEdge,
+      rotationRadians: (slot.rotationDegrees * Math.PI) / 180,
+    }))
+
+    expect(rectangles).toHaveLength(24)
+    expect(
+      rectangles.every((rectangle) =>
+        orientedMaterialRectangleIsWithinBounds(
+          rectangle,
+          placement.usableRegion,
+        ),
+      ),
+    ).toBe(true)
+    for (let left = 0; left < rectangles.length; left += 1) {
+      for (let right = left + 1; right < rectangles.length; right += 1) {
+        expect(
+          orientedMaterialRectanglesHaveInteriorIntersection(
+            rectangles[left]!,
+            rectangles[right]!,
+          ),
+        ).toBe(false)
+      }
+    }
+  })
+
+  it('8 种材料按初始 composition bounds 固定放大到 170，24 份任意顺序的实际内容 OBB 共 276 对不相交', async () => {
+    const loaded = await loadProduction()
+    const runtime = createM2RuntimeConfiguration(
+      loaded.config,
+      loaded.compositionMaps,
+    )
+    for (const material of runtime.simulation.materials) {
+      const layout = deriveMaterialFrameLayout(
+        material.composition,
+        runtime.simulation.materialPlacement.visibleLongEdge,
+      )
+      expect(Math.max(layout.contentWidth, layout.contentHeight)).toBeCloseTo(
+        170,
+        9,
+      )
+    }
+
+    const instances = runtime.rules.inventoryBatches
+      .flatMap((batch) =>
+        Array.from({ length: batch.servings }, (_, index) => ({
+          materialInstanceId: `${batch.batchId}-${index}`,
+          materialDefinitionId: batch.materialDefinitionId,
+          inventoryBatchId: batch.batchId,
+          initialVolume: batch.volumePerServing,
+          remainingVolume: batch.volumePerServing,
+        })),
+      )
+      .reverse()
+    const baseState = createDomainState(runtime.rules)
+    const state = {
+      ...baseState,
+      status: 'extracting' as const,
+      materialInstances: instances,
+      isSpraying: false,
+    }
+    const simulation = new ExtractionSimulation(runtime.simulation)
+    simulation.beginTick({ tick: 0, domainState: state })
+    for (let phase = 1; phase <= 7; phase += 1) {
+      simulation.runPhase(phase as 1 | 2 | 3 | 4 | 5 | 6 | 7, state)
+    }
+    simulation.buildCandidate()
+    simulation.commitTick()
+
+    const contentRectangles = simulation.read().materials.map((material) =>
+      deriveMaterialContentRectangle(
+        material.placement,
+        material.composition,
+      ),
+    )
+    expect(contentRectangles).toHaveLength(24)
+    expect(
+      contentRectangles.every((rectangle) =>
+        orientedMaterialRectangleIsWithinBounds(
+          rectangle,
+          runtime.simulation.materialPlacement.usableRegion,
+        ),
+      ),
+    ).toBe(true)
+    let pairCount = 0
+    for (let left = 0; left < contentRectangles.length; left += 1) {
+      for (let right = left + 1; right < contentRectangles.length; right += 1) {
+        pairCount += 1
+        expect(
+          orientedMaterialRectanglesHaveInteriorIntersection(
+            contentRectangles[left]!,
+            contentRectangles[right]!,
+          ),
+        ).toBe(false)
+      }
+    }
+    expect(pairCount).toBe(276)
+  })
+
+  it('正式三类丹珠使用小珠半径并为出生脱离保留 2px clearance', async () => {
+    const loaded = await loadProduction()
+    expect(
+      loaded.config.gameplay.pearlTypes.map(
+        ({ pearlType, standardRadius, spawnClearance }) => ({
+          pearlType,
+          standardRadius,
+          spawnClearance,
+        }),
+      ),
+    ).toEqual([
+      {
+        pearlType: 'medicinalLiquid',
+        standardRadius: 8,
+        spawnClearance: 2,
+      },
+      { pearlType: 'slag', standardRadius: 7, spawnClearance: 2 },
+      { pearlType: 'impurity', standardRadius: 6, spawnClearance: 2 },
+    ])
+  })
+
   it('逐项锁定 8 种药材、批次状态、标签强度与素材路径', async () => {
     const loaded = await loadProduction()
     expect(loaded.config.base.materials.map(({ id }) => id)).toEqual(MATERIAL_IDS)
@@ -518,6 +652,7 @@ describe('M4 完整内容与配置', () => {
       pearlTypes: string
       collector: string
       interactions: string
+      presentation: string
     }
     const interactions = structuredClone(readPublicJson(m2Manifest.interactions)) as {
       interactions: Array<{ participantA: { materialDefinitionIds: string[] } }>
@@ -530,6 +665,7 @@ describe('M4 完整内容与配置', () => {
       pearlTypes: document(m2Manifest.pearlTypes),
       collector: document(m2Manifest.collector),
       interactions: document(m2Manifest.interactions, interactions),
+      presentation: document(m2Manifest.presentation),
     }
     const invalidInteraction = validateAndNormalizeM2GameplayConfig(
       rawM2,

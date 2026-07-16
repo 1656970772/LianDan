@@ -14,12 +14,15 @@ import {
   type PearlType,
   type PrototypeRules,
 } from '../../domain/index.ts'
+import { orientedMaterialRectanglesHaveInteriorIntersection } from '../../shared/material-placement-geometry.ts'
+import { deriveMaterialContentBounds } from '../../shared/material-content-geometry.ts'
 
 const GRID_SIZE = 64
 const CELL_COUNT = GRID_SIZE * GRID_SIZE
 const MATERIAL_ID = 'material.generic'
 const MATERIAL_INSTANCE_ID = 'material-instance-1'
 const M3_PEARL_RULES = {
+  spawnClearance: 0,
   wallRestitution: 0.2,
   fireProtectionSeconds: 10,
   resetProtectionOnExit: true,
@@ -28,7 +31,18 @@ const M3_PEARL_RULES = {
 } as const
 
 const RULES: PrototypeRules = {
+  fixedDeltaSeconds: 1 / 30,
   availableFireSourceIds: ['fire.basic'],
+  fireSources: [
+    {
+      id: 'fire.basic',
+      baseTemperature: 8,
+      maximumTemperature: 100,
+      heatingRatePerSecond: 24,
+      coolingRatePerSecond: 10,
+      temperatureCurve: 'linear',
+    },
+  ],
   initialFireSize: 100,
   initialFireDirection: { x: 0, y: -1 },
   inventoryBatches: [],
@@ -68,12 +82,14 @@ function config(
   targetPearlCount: number,
   overrides: Partial<ExtractionSimulationConfig> = {},
 ): ExtractionSimulationConfig {
+  const contentBounds = deriveMaterialContentBounds(materialComposition)
   return {
     seed: 123,
     standardPearlVolume: 1,
     fixedDeltaSeconds: 1,
     dissolutionVolumePerTick: 1,
     exposureProbeDistance: 2,
+    frontLaneWidthCells: 1,
     naturalLossRatePerMinute: 0,
     safeZoneY: 112,
     fireFlow: {
@@ -101,11 +117,13 @@ function config(
       },
     ],
     materialPlacement: {
-      center: { x: 64, y: 50 },
-      width: 64,
-      height: 64,
-      offsetPerInstance: { x: 0, y: 0 },
-      rotationRadiansPerInstance: 0,
+      visibleLongEdge: Math.max(
+        contentBounds.widthCells,
+        contentBounds.heightCells,
+      ),
+      minimumGap: 0,
+      usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+      slots: [{ center: { x: 64, y: 50 }, rotationRadians: 0 }],
     },
     fireSource: {
       origin: { x: 64, y: 112 },
@@ -165,6 +183,13 @@ function materialInstance(totalVolume: number): MaterialInstance {
     initialVolume: totalVolume,
     remainingVolume: totalVolume,
   }
+}
+
+function materialInstances(count: number, totalVolume = 1): MaterialInstance[] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...materialInstance(totalVolume),
+    materialInstanceId: `material-instance-${String(index + 1).padStart(2, '0')}`,
+  }))
 }
 
 function domainState(
@@ -238,6 +263,228 @@ function affectedColumns(
 }
 
 describe('M2 纯萃取模拟事务', () => {
+  it('两份材料的权威摆放内部不相交', () => {
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+        materialPlacement: {
+          visibleLongEdge: 1,
+          minimumGap: 0,
+          usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+          slots: [
+            { center: { x: 32, y: 50 }, rotationRadians: 0 },
+            { center: { x: 96, y: 50 }, rotationRadians: 0 },
+          ],
+        },
+      }),
+    )
+    const state = domainState(1, {
+      isSpraying: false,
+      materialInstances: [
+        materialInstance(1),
+        {
+          ...materialInstance(1),
+          materialInstanceId: 'material-instance-2',
+        },
+      ],
+    })
+
+    runTick(simulation, state, 0)
+
+    const [first, second] = simulation.read().materials
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    expect(Math.abs(first!.placement.center.x - second!.placement.center.x)).toBeGreaterThanOrEqual(
+      first!.placement.width,
+    )
+  })
+
+  it('三份同材依序使用唯一槽位且 OBB 两两不相交', () => {
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+        materialPlacement: {
+          visibleLongEdge: 0.5,
+          minimumGap: 0,
+          usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+          slots: [16, 48, 80].map((x) => ({
+            center: { x, y: 50 },
+            rotationRadians: 0,
+          })),
+        },
+      }),
+    )
+
+    let state = domainState(1, {
+      isSpraying: false,
+      materialInstances: materialInstances(1),
+    })
+    ;({ state } = runTick(simulation, state, 0))
+    ;({ state } = runTick(
+      simulation,
+      { ...state, materialInstances: materialInstances(2).reverse() },
+      1,
+    ))
+    const threeInstances = materialInstances(3)
+    runTick(
+      simulation,
+      {
+        ...state,
+        materialInstances: [
+          threeInstances[2]!,
+          threeInstances[0]!,
+          threeInstances[1]!,
+        ],
+      },
+      2,
+    )
+
+    const placements = simulation.read().materials.map(({ placement }) => placement)
+    expect(placements.map(({ layer }) => layer)).toEqual([0, 1, 2])
+    expect(new Set(placements.map(({ center }) => `${center.x},${center.y}`)).size).toBe(3)
+    for (let left = 0; left < placements.length; left += 1) {
+      for (let right = left + 1; right < placements.length; right += 1) {
+        expect(
+          orientedMaterialRectanglesHaveInteriorIntersection(
+            placements[left]!,
+            placements[right]!,
+          ),
+        ).toBe(false)
+      }
+    }
+  })
+
+  it('24 份材料全部使用唯一槽位且 OBB 两两不相交', () => {
+    const slots = [16, 48, 80].flatMap((y) =>
+      Array.from({ length: 8 }, (_, column) => ({
+        center: { x: 8 + column * 16, y },
+        rotationRadians: 0,
+      })),
+    )
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+        materialPlacement: {
+          visibleLongEdge: 0.25,
+          minimumGap: 0,
+          usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+          slots,
+        },
+      }),
+    )
+
+    runTick(
+      simulation,
+      domainState(1, {
+        isSpraying: false,
+        materialInstances: materialInstances(24),
+      }),
+      0,
+    )
+
+    const placements = simulation.read().materials.map(({ placement }) => placement)
+    expect(placements).toHaveLength(24)
+    expect(new Set(placements.map(({ center }) => `${center.x},${center.y}`)).size).toBe(24)
+    for (let left = 0; left < placements.length; left += 1) {
+      for (let right = left + 1; right < placements.length; right += 1) {
+        expect(
+          orientedMaterialRectanglesHaveInteriorIntersection(
+            placements[left]!,
+            placements[right]!,
+          ),
+        ).toBe(false)
+      }
+    }
+  })
+
+  it('材料份数超过槽位时 fail-closed 且 rollback 不发布半写', () => {
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1),
+    )
+    const state = domainState(1, {
+      isSpraying: false,
+      materialInstances: materialInstances(2),
+    })
+
+    simulation.beginTick({ tick: 0, domainState: state })
+    expect(() => simulation.runPhase(1, state)).toThrow(
+      'SIM_EXTRACTION_MATERIAL_PLACEMENT_FULL',
+    )
+    simulation.rollbackTick()
+
+    expect(simulation.read()).toMatchObject({
+      tick: -1,
+      materials: [],
+      pearls: [],
+    })
+  })
+
+  it.each([
+    [
+      '内部相交',
+      {
+        visibleLongEdge: 64,
+        minimumGap: 0,
+        usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+        slots: [
+          { center: { x: 32, y: 50 }, rotationRadians: 0 },
+          { center: { x: 80, y: 50 }, rotationRadians: 0 },
+        ],
+      },
+      'SIM_EXTRACTION_CONFIG_INVALID:materialPlacement.slots.1.overlap',
+    ],
+    [
+      '旋转越界',
+      {
+        visibleLongEdge: 64,
+        minimumGap: 0,
+        usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+        slots: [
+          { center: { x: 32, y: 50 }, rotationRadians: Math.PI / 4 },
+        ],
+      },
+      'SIM_EXTRACTION_CONFIG_INVALID:materialPlacement.slots.0.bounds',
+    ],
+  ] as const)('模拟构造防御性拒绝槽位%s', (_name, materialPlacement, error) => {
+    expect(
+      () =>
+        new ExtractionSimulation(
+          config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+            materialPlacement,
+          }),
+        ),
+    ).toThrow(error)
+  })
+
+  it('reset 后以相同投药顺序重放得到相同槽位映射', () => {
+    const simulation = new ExtractionSimulation(
+      config(composition([{ column: 32, row: 32, type: 1 }]), 1, {
+        materialPlacement: {
+          visibleLongEdge: 1,
+          minimumGap: 0,
+          usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+          slots: [
+            { center: { x: 32, y: 50 }, rotationRadians: 0 },
+            { center: { x: 96, y: 50 }, rotationRadians: 0 },
+          ],
+        },
+      }),
+    )
+    const state = domainState(1, {
+      isSpraying: false,
+      materialInstances: materialInstances(2),
+    })
+    const execute = () => {
+      runTick(simulation, state, 0)
+      return simulation.read().materials.map(({ materialInstanceId, placement }) => ({
+        materialInstanceId,
+        placement,
+      }))
+    }
+
+    const first = execute()
+    simulation.reset()
+
+    expect(execute()).toEqual(first)
+  })
+
   it('M4 丹珠继承批次标签，并在安全区内按配置触发赤寒相争', () => {
     const medicinalCell = composition([{ column: 32, row: 63, type: 1 }])
     const interactionConfig = config(medicinalCell, 1, {
@@ -247,11 +494,13 @@ describe('M2 纯萃取模拟事务', () => {
         { id: 'frost_marrow_crystal', targetPearlCount: 1, composition: medicinalCell },
       ],
       materialPlacement: {
-        center: { x: 56, y: 50 },
-        width: 64,
-        height: 64,
-        offsetPerInstance: { x: 16, y: 0 },
-        rotationRadiansPerInstance: 0,
+        visibleLongEdge: 0.25,
+        minimumGap: 0,
+        usableRegion: { left: 0, top: 0, right: 128, bottom: 128 },
+        slots: [
+          { center: { x: 56, y: 50 }, rotationRadians: 0 },
+          { center: { x: 72, y: 50 }, rotationRadians: 0 },
+        ],
       },
       pearlPhysics: {
         medicinalLiquid: {
@@ -444,7 +693,7 @@ describe('M2 纯萃取模拟事务', () => {
         fixedDeltaSeconds: 1 / 30,
         dissolutionVolumePerTick: 1,
         fireSource: {
-          origin: { x: 64, y: 112 },
+          origin: { x: 58.5, y: 112 },
           halfAngleRadians: Math.PI / 3,
           minWidth: 4,
           maxWidth: 4,
@@ -495,23 +744,42 @@ describe('M2 纯萃取模拟事务', () => {
   it('标准珠体积小于旧绝对 epsilon 时，4096 个正体积格仍能推进', () => {
     const map = rectangleComposition(0, 63, 0, 63)
     const standardPearlVolume = 1e-10
-    const simulation = new ExtractionSimulation(
-      config(map, 1, {
-        standardPearlVolume,
-        dissolutionVolumePerTick: standardPearlVolume,
-      }),
+    const scenarioConfig = config(map, 1, {
+      standardPearlVolume,
+      dissolutionVolumePerTick: standardPearlVolume,
+    })
+    const runScenario = () => {
+      const simulation = new ExtractionSimulation(scenarioConfig)
+      const startedAt = performance.now()
+      const result = runTick(
+        simulation,
+        domainState(standardPearlVolume),
+        0,
+      )
+      return {
+        elapsedMilliseconds: performance.now() - startedAt,
+        result,
+        material: simulation.read().materials[0]!,
+      }
+    }
+
+    const first = runScenario()
+    const replay = runScenario()
+    const dissolvedVolume = sum(
+      first.result.delta.dissolutions.map(({ volume }) => volume),
     )
 
-    const result = runTick(
-      simulation,
-      domainState(standardPearlVolume),
-      0,
-    )
-
-    expect(sum(result.delta.dissolutions.map(({ volume }) => volume)))
-      .toBeGreaterThan(0)
-    expect(simulation.read().materials[0]!.remainingVolume)
+    expect(first.elapsedMilliseconds).toBeLessThan(2_000)
+    expect(dissolvedVolume).toBeGreaterThan(0)
+    expect(first.material.remainingVolume)
       .toBeLessThan(standardPearlVolume)
+    expect(
+      standardPearlVolume - first.material.remainingVolume,
+    ).toBeCloseTo(dissolvedVolume, 20)
+    expect(replay.result.delta).toEqual(first.result.delta)
+    expect(replay.material.remainingCellVolumes).toEqual(
+      first.material.remainingCellVolumes,
+    )
   })
 
   it('每 tick 溶解量小于旧绝对 epsilon 时仍按配置产生正进度', () => {
@@ -545,11 +813,10 @@ describe('M2 纯萃取模拟事务', () => {
 
     expect(sum(result.delta.dissolutions.map(({ volume }) => volume))).toBeCloseTo(5, 12)
     expect(sum(result.delta.births.map(({ volume }) => volume))).toBeCloseTo(5, 12)
-    expect(volumeByType(result.delta)).toEqual({
-      medicinalLiquid: 2.5,
-      slag: 5 / 6,
-      impurity: 5 / 3,
-    })
+    const bornVolumeByType = volumeByType(result.delta)
+    expect(bornVolumeByType.medicinalLiquid).toBeCloseTo(2.5, 12)
+    expect(bornVolumeByType.slag).toBeCloseTo(5 / 6, 12)
+    expect(bornVolumeByType.impurity).toBeCloseTo(5 / 3, 12)
     expect(
       result.delta.births.filter(({ pearlType }) => pearlType === 'medicinalLiquid')
         .map(({ volume }) => volume),
@@ -622,6 +889,244 @@ describe('M2 纯萃取模拟事务', () => {
     )
     expect(affectedColumns(before, narrowAfter).size).toBeLessThan(
       affectedColumns(before, wideAfter).size,
+    )
+  })
+
+  it('生产级小步溶解在首珠出生时已经形成局部面积缺口，不把整排 exposed 格均摊成淡影', () => {
+    const map = rectangleComposition(18, 46, 16, 48)
+    const simulation = new ExtractionSimulation(
+      config(map, 300, {
+        fixedDeltaSeconds: 1 / 30,
+        dissolutionVolumePerTick: 0.18,
+        fireSource: {
+          origin: { x: 64, y: 112 },
+          halfAngleRadians: Math.PI / 3,
+          minWidth: 4,
+          maxWidth: 80,
+        },
+      }),
+    )
+    let state = domainState(300)
+    let firstBirthTick = -1
+    for (let tick = 0; tick < 20; tick += 1) {
+      const result = runTick(simulation, state, tick)
+      state = result.state
+      if (result.delta.births.length > 0) {
+        firstBirthTick = tick
+        break
+      }
+    }
+
+    const material = simulation.read().materials[0]!
+    const zeroCells = material.initialCellVolumes.filter(
+      (initial, index) =>
+        initial > 0 && material.remainingCellVolumes[index] === 0,
+    ).length
+    const partialCells = material.initialCellVolumes.filter(
+      (initial, index) =>
+        initial > 0 &&
+        material.remainingCellVolumes[index]! > 0 &&
+        material.remainingCellVolumes[index]! < initial,
+    ).length
+
+    expect(firstBirthTick).toBeGreaterThanOrEqual(0)
+    expect(zeroCells).toBeGreaterThan(0)
+    expect(partialCells).toBeLessThanOrEqual(1)
+  })
+
+  it('自然损耗形成的 partial 不会冒充 active fire front', () => {
+    const map = composition([
+      { column: 20, row: 63, type: 1 },
+      { column: 26, row: 63, type: 2 },
+      { column: 32, row: 63, type: 2 },
+    ])
+    const simulation = new ExtractionSimulation(
+      config(map, 3, {
+        fixedDeltaSeconds: 1,
+        dissolutionVolumePerTick: 0.18,
+        naturalLossRatePerMinute: 30,
+      }),
+    )
+    let state = domainState(3, { isSpraying: false })
+    ;({ state } = runTick(simulation, state, 0))
+
+    const naturallyPartial = simulation.read().materials[0]!
+    expect(naturallyPartial.remainingCellVolumes[63 * GRID_SIZE + 20])
+      .toBeLessThan(naturallyPartial.initialCellVolumes[63 * GRID_SIZE + 20]!)
+
+    const fired = runTick(
+      simulation,
+      { ...state, isSpraying: true },
+      1,
+    )
+
+    expect(fired.delta.dissolutions).toMatchObject([
+      { pearlType: 'slag', volume: 0.18 },
+    ])
+  })
+
+  it('只有火蚀本身清零的格才建立通道，自然损耗收尾不会暴露相邻炉渣', () => {
+    const map = composition([
+      { column: 32, row: 63, type: 1 },
+      { column: 33, row: 63, type: 2 },
+    ])
+    const base = config(map, 2)
+    const channelConfig: ExtractionSimulationConfig = {
+      ...base,
+      fixedDeltaSeconds: 1,
+      dissolutionVolumePerTick: 0.5,
+      naturalLossRatePerMinute: 60,
+      safeZoneY: 780,
+      fireFlow: {
+        ...base.fireFlow,
+        geometry: {
+          columns: 100,
+          rows: 125,
+          cellSize: 4,
+          originX: 600,
+          originY: 300,
+        },
+      },
+      materialPlacement: {
+        visibleLongEdge: 64,
+        minimumGap: 0,
+        usableRegion: { left: 700, top: 400, right: 900, bottom: 600 },
+        slots: [{ center: { x: 800, y: 500 }, rotationRadians: 0 }],
+      },
+      fireSource: {
+        origin: { x: 784, y: 700 },
+        halfAngleRadians: Math.PI / 3,
+        minWidth: 16,
+        maxWidth: 16,
+      },
+      collector: {
+        ...base.collector,
+        initialCenter: { x: 800, y: 760 },
+        trackMinX: 700,
+        trackMaxX: 900,
+      },
+      worldBounds: { left: 600, top: 300, right: 1000, bottom: 800 },
+    }
+    const runBranch = (sprayOnFirstTick: boolean) => {
+      const simulation = new ExtractionSimulation(channelConfig)
+      const execute = () => {
+        const first = runTick(
+          simulation,
+          domainState(2, {
+            isSpraying: sprayOnFirstTick,
+            fireDirection: { x: 0, y: -1 },
+          }),
+          0,
+        )
+        const second = runTick(
+          simulation,
+          { ...first.state, isSpraying: true },
+          1,
+        )
+        return {
+          firstDissolutions: first.delta.dissolutions,
+          firstNaturalLosses: first.delta.naturalLosses,
+          secondDissolutions: second.delta.dissolutions,
+          remainingCellVolumes: Array.from(
+            simulation.read().materials[0]!.remainingCellVolumes,
+          ),
+        }
+      }
+      const firstRun = execute()
+      simulation.reset()
+      expect(execute()).toEqual(firstRun)
+      return firstRun
+    }
+
+    const control = runBranch(false)
+    const experiment = runBranch(true)
+
+    expect(control.firstDissolutions).toEqual([])
+    expect(experiment.firstDissolutions).toMatchObject([
+      { pearlType: 'medicinalLiquid', volume: 0.5 },
+    ])
+    expect(control.secondDissolutions).toEqual([])
+    expect(experiment.secondDissolutions).toEqual([])
+    expect(experiment.remainingCellVolumes).toEqual(
+      control.remainingCellVolumes,
+    )
+  })
+
+  it.each([0, 1.5, 65] as const)(
+    'frontLaneWidthCells=%s 在 simulation 边界 fail-closed',
+    (frontLaneWidthCells) => {
+      const map = composition([{ column: 32, row: 63, type: 1 }])
+      expect(
+        () =>
+          new ExtractionSimulation(
+            config(map, 1, { frontLaneWidthCells }),
+          ),
+      ).toThrow('SIM_EXTRACTION_CONFIG_INVALID:frontLaneWidthCells')
+    },
+  )
+
+  it('标准珠出生即与所有剩余材料分离，commit 后下一 tick 真实移动', () => {
+    const map = rectangleComposition(18, 46, 16, 48)
+    const simulation = new ExtractionSimulation(
+      config(map, 300, {
+        fixedDeltaSeconds: 1 / 30,
+        dissolutionVolumePerTick: 1,
+        pearlPhysics: {
+          medicinalLiquid: {
+            ...config(map, 300).pearlPhysics.medicinalLiquid,
+            radiusAtStandardVolume: 2,
+            spawnVelocity: { minX: 20, maxX: 20, minY: 30, maxY: 30 },
+            gravity: 0,
+          },
+          slag: {
+            ...config(map, 300).pearlPhysics.slag,
+            radiusAtStandardVolume: 2,
+          },
+          impurity: {
+            ...config(map, 300).pearlPhysics.impurity,
+            radiusAtStandardVolume: 2,
+          },
+        },
+      }),
+    )
+    const first = runTick(simulation, domainState(300), 0)
+    expect(first.delta.births).toHaveLength(1)
+    const firstPearlAtBirth = simulation.read().pearls[0]!
+    expect(
+      circleIntersectsRemainingMaterial(
+        simulation.read().materials,
+        firstPearlAtBirth.position,
+        firstPearlAtBirth.radius,
+      ),
+    ).toBe(false)
+
+    const second = runTick(simulation, first.state, 1)
+    expect(second.delta.births).toHaveLength(1)
+    for (const pearl of simulation.read().pearls) {
+      expect(
+        circleIntersectsRemainingMaterial(
+          simulation.read().materials,
+          pearl.position,
+          pearl.radius,
+        ),
+      ).toBe(false)
+    }
+    expect(simulation.read().pearls[0]!.position).not.toEqual(
+      firstPearlAtBirth.position,
+    )
+    expect(
+      sum(
+        [...first.delta.births, ...second.delta.births].map(
+          ({ volume }) => volume,
+        ),
+      ),
+    ).toBeCloseTo(
+      sum(
+        [...first.delta.dissolutions, ...second.delta.dissolutions].map(
+          ({ volume }) => volume,
+        ),
+      ),
+      12,
     )
   })
 
@@ -801,10 +1306,10 @@ describe('M2 纯萃取模拟事务', () => {
   })
 
   it.each([
-    ['left', { x: 68.5, y: 50.5 }, { x: 68.51, y: 50.5 }],
-    ['right', { x: 60.5, y: 50.5 }, { x: 60.49, y: 50.5 }],
-    ['top', { x: 64.5, y: 54.5 }, { x: 64.5, y: 54.51 }],
-    ['bottom', { x: 64.5, y: 46.5 }, { x: 64.5, y: 46.49 }],
+    ['left', { x: 68, y: 50 }, { x: 68.01, y: 50 }],
+    ['right', { x: 60, y: 50 }, { x: 59.99, y: 50 }],
+    ['top', { x: 64, y: 54 }, { x: 64, y: 54.01 }],
+    ['bottom', { x: 64, y: 46 }, { x: 64, y: 45.99 }],
   ] as const)('collector 仅在珠中心进入 AABB 时接取：%s 边界', (_edge, boundary, outside) => {
     const run = (collectorCenter: Readonly<{ x: number; y: number }>) => {
       const zeroPhysics = {
@@ -889,6 +1394,82 @@ describe('M2 纯萃取模拟事务', () => {
     expect(simulation.read().pearls[0]!.velocity.y).toBeCloseTo(0.2, 12)
   })
 
+  it('密集材料表面的药渣停火后不会因全量反速收敛为永久静止 active 珠', () => {
+    const map = rectangleComposition(20, 43, 20, 43, 2)
+    const physics = {
+      radiusAtStandardVolume: 0.3,
+      spawnVelocity: { minX: 1, maxX: 1, minY: 0, maxY: 0 },
+      gravity: -1,
+      driftX: 0,
+      maxSpeed: 10,
+      materialRestitution: 0.2,
+      ...M3_PEARL_RULES,
+    }
+    const scenarioConfig = config(map, 300, {
+      dissolutionVolumePerTick: 1,
+      pearlPhysics: {
+        medicinalLiquid: physics,
+        slag: physics,
+        impurity: physics,
+      },
+      collector: {
+        initialCenter: { x: 16, y: 112 },
+        width: 4,
+        height: 4,
+        trackMinX: 16,
+        trackMaxX: 112,
+        acceleration: 80,
+        deceleration: 100,
+        maxSpeed: 32,
+      },
+    })
+    const runScenario = () => {
+      const simulation = new ExtractionSimulation(scenarioConfig)
+      let state = domainState(300)
+      const born = runTick(simulation, state, 0)
+      state = { ...born.state, isSpraying: false }
+      expect(born.delta.births).toMatchObject([{ pearlType: 'slag' }])
+      const pearlId = born.delta.births[0]!.pearlId
+      const positions: string[] = []
+
+      for (let tick = 1; tick <= 60; tick += 1) {
+        const result = runTick(simulation, state, tick)
+        state = { ...result.state, isSpraying: false }
+        const pearl = simulation.read().pearls.find(
+          (candidate) => candidate.pearlId === pearlId,
+        )!
+        positions.push(`${pearl.position.x},${pearl.position.y}`)
+      }
+
+      const pearl = simulation.read().pearls.find(
+        (candidate) => candidate.pearlId === pearlId,
+      )!
+      return {
+        positions,
+        pearl,
+        nearSurface: circleIntersectsRemainingMaterial(
+          simulation.read().materials,
+          pearl.position,
+          pearl.radius + 1,
+        ),
+      }
+    }
+    const first = runScenario()
+    const replay = runScenario()
+    const lowSpeed =
+      Math.hypot(first.pearl.velocity.x, first.pearl.velocity.y) < 10
+    const positionUnchanged = new Set(first.positions).size === 1
+
+    expect(new Set(first.positions).size).toBeGreaterThan(1)
+    expect(replay).toEqual(first)
+    expect(
+      first.pearl.state === 'active' &&
+        first.nearSurface &&
+        lowSpeed &&
+        positionUnchanged,
+    ).toBe(false)
+  })
+
   it('phase 6 将完全越出 worldBounds 的既有 active 珠稳定结算为 missed', () => {
     const map = composition([{ column: 32, row: 32, type: 1 }])
     const physics = {
@@ -958,19 +1539,69 @@ describe('M2 纯萃取模拟事务', () => {
     expect(replay).toEqual(first)
   })
 
+  it('完整标准珠无法找到安全出生点时首个形成 tick 立即 fail-closed 并可同 tick 重放', () => {
+    const map = rectangleComposition(31, 32, 31, 32)
+    const base = config(map, 4, { dissolutionVolumePerTick: 1 })
+    const blockedPhysics = Object.fromEntries(
+      Object.entries(base.pearlPhysics).map(([pearlType, physics]) => [
+        pearlType,
+        { ...physics, spawnClearance: 100 },
+      ]),
+    ) as ExtractionSimulationConfig['pearlPhysics']
+    const simulation = new ExtractionSimulation({
+      ...base,
+      pearlPhysics: blockedPhysics,
+    })
+    const initialized = runTick(
+      simulation,
+      domainState(4, { isSpraying: false }),
+      0,
+    )
+    const spraying = { ...initialized.state, isSpraying: true }
+
+    const runBlockedBirthTick = () => {
+      simulation.beginTick({ tick: 1, domainState: spraying })
+      for (let phase = 1; phase <= 3; phase += 1) {
+        simulation.runPhase(phase as 1 | 2 | 3, spraying)
+      }
+      expect(() => simulation.runPhase(4, spraying)).toThrow(
+        'SIM_EXTRACTION_PEARL_SPAWN_BLOCKED',
+      )
+      simulation.rollbackTick()
+    }
+
+    runBlockedBirthTick()
+    expect(simulation.read().materials[0]!.remainingVolume).toBe(4)
+    expect(simulation.read().pearls).toEqual([])
+
+    runBlockedBirthTick()
+    expect(simulation.read().materials[0]!.remainingVolume).toBe(4)
+    expect(simulation.read().pearls).toEqual([])
+  })
+
   it('构造后的外部配置变更不会改写模拟权威配置', () => {
     const mutableConfig = config(
       composition([{ column: 32, row: 32, type: 1 }]),
       1,
     )
     const simulation = new ExtractionSimulation(mutableConfig)
-    ;(mutableConfig.materialPlacement.center as { x: number }).x = 12
-    ;(mutableConfig.materialPlacement.offsetPerInstance as { x: number }).x = 99
+    ;(mutableConfig.materialPlacement.slots[0]!.center as { x: number }).x = 12
     ;(mutableConfig.fireSource.origin as { x: number }).x = 12
 
     runTick(simulation, domainState(1, { isSpraying: false }), 0)
 
-    expect(simulation.read().materials[0]!.placement.center).toEqual({ x: 64, y: 50 })
+    const material = simulation.read().materials[0]!
+    const bounds = deriveMaterialContentBounds(material.composition)
+    expect({
+      x:
+        material.placement.center.x +
+        ((bounds.leftColumn + bounds.rightColumn) * 0.5 - GRID_SIZE * 0.5) *
+          (material.placement.width / GRID_SIZE),
+      y:
+        material.placement.center.y +
+        ((bounds.topRow + bounds.bottomRow) * 0.5 - GRID_SIZE * 0.5) *
+          (material.placement.height / GRID_SIZE),
+    }).toEqual({ x: 64, y: 50 })
   })
 
   it('公开 read 视图不能改写已发布流场或下一 tick 的 generation', () => {
@@ -1023,6 +1654,7 @@ describe('M2 纯萃取模拟事务', () => {
   it('丹珠首触火焰先激活护盾，保护耗尽后才按体积持续灼烧', () => {
     const physics = {
       radiusAtStandardVolume: 2,
+      spawnClearance: 0,
       spawnVelocity: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
       gravity: 0,
       driftX: 0,
@@ -1077,6 +1709,7 @@ describe('M2 纯萃取模拟事务', () => {
   it('火焰推力开关只在开启时沿权威流场改变丹珠速度', () => {
     const physics = {
       radiusAtStandardVolume: 2,
+      spawnClearance: 0,
       spawnVelocity: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
       gravity: 0,
       driftX: 0,
@@ -1114,19 +1747,35 @@ describe('M2 纯萃取模拟事务', () => {
     const onBorn = runTick(onSimulation, domainState(1), 0)
 
     runTick(offSimulation, offBorn.state, 1)
-    runTick(
+    const thrustOn = runTick(
       onSimulation,
       { ...onBorn.state, flameThrustEnabled: true },
       1,
     )
 
     expect(offSimulation.read().pearls[0]!.velocity).toEqual({ x: 0, y: 0 })
-    expect(onSimulation.read().pearls[0]!.velocity.y).toBeLessThan(0)
+    const velocityAfterThrust = onSimulation.read().pearls[0]!.velocity
+    expect(velocityAfterThrust.y).toBeLessThan(0)
+
+    runTick(
+      onSimulation,
+      {
+        ...thrustOn.state,
+        flameThrustEnabled: false,
+        isSpraying: true,
+      },
+      2,
+    )
+
+    expect(onSimulation.read().pearls[0]!.velocity).toEqual(
+      velocityAfterThrust,
+    )
   })
 
   it('离开火流后重置保护计时，再次触火会重新激活护盾', () => {
     const physics = {
       radiusAtStandardVolume: 2,
+      spawnClearance: 0,
       spawnVelocity: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
       gravity: 0,
       driftX: 0,
@@ -1181,6 +1830,7 @@ describe('M2 纯萃取模拟事务', () => {
   it('丹珠越过安全区边界后永久退出挡火、伤害与推力资格', () => {
     const physics = {
       radiusAtStandardVolume: 2,
+      spawnClearance: 0,
       spawnVelocity: { minX: 0, maxX: 0, minY: 20, maxY: 20 },
       gravity: 0,
       driftX: 0,

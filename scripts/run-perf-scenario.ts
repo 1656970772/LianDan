@@ -1344,6 +1344,7 @@ async function execute(report: M1RunReport): Promise<void> {
     browser = await chromium.launch({
       headless: false,
       executablePath,
+      args: ['--mute-audio'],
     })
     report.browser = {
       engine: 'chromium',

@@ -38,6 +38,8 @@ export type ExtractionRuntimeOptions<TRead> = Readonly<{
   onCommitted?: (snapshot: ExtractionRuntimeSnapshot<TRead>) => void
 }>
 
+const EMPTY_DOMAIN_EVENTS: readonly DomainEvent[] = Object.freeze([])
+
 function isSimulationPhase(phase: number): phase is ExtractionSimulationPhase {
   return phase >= 1 && phase <= 7
 }
@@ -46,12 +48,50 @@ function tickCanNeverAdvance(model: ApplicationReadModel): boolean {
   return model.status === 'failed' || model.status === 'completed'
 }
 
+function sameApplicationReadModel(
+  left: ApplicationReadModel,
+  right: ApplicationReadModel,
+): boolean {
+  return (
+    left.sessionId === right.sessionId &&
+    left.status === right.status &&
+    left.nextTick === right.nextTick &&
+    left.availableFireSourceIds.length === right.availableFireSourceIds.length &&
+    left.availableFireSourceIds.every(
+      (value, index) => value === right.availableFireSourceIds[index],
+    ) &&
+    left.equippedFireSourceId === right.equippedFireSourceId &&
+    left.fireSize === right.fireSize &&
+    left.isSpraying === right.isSpraying &&
+    left.effectiveFireSize === right.effectiveFireSize &&
+    left.furnaceTemperature === right.furnaceTemperature &&
+    left.canFinish === right.canFinish &&
+    left.lossWarningLevel === right.lossWarningLevel &&
+    left.failureResult === right.failureResult &&
+    left.paused === right.paused &&
+    left.pauseReasons.length === right.pauseReasons.length &&
+    left.pauseReasons.every(
+      (value, index) => value === right.pauseReasons[index],
+    ) &&
+    left.restartConfirmation === right.restartConfirmation
+  )
+}
+
+function isLifecycleControl(draft: ApplicationControlDraft): boolean {
+  return (
+    draft.type === 'WindowBlur' ||
+    draft.type === 'WindowFocus' ||
+    draft.type === 'VisibilityChanged'
+  )
+}
+
 export class ExtractionRuntime<TRead> {
   readonly #application: ExtractionApplication
   readonly #simulation: ExtractionSimulationPort<TRead>
   readonly #clock: FixedStepClock
   readonly #onCommitted: ExtractionRuntimeOptions<TRead>['onCommitted']
-  #lastEvents: readonly DomainEvent[] = []
+  #lastEvents: readonly DomainEvent[] = EMPTY_DOMAIN_EVENTS
+  #snapshotCache: ExtractionRuntimeSnapshot<TRead> | null = null
 
   constructor(options: ExtractionRuntimeOptions<TRead>) {
     this.#application = new ExtractionApplication(options.rules)
@@ -69,9 +109,11 @@ export class ExtractionRuntime<TRead> {
 
   captureControl(draft: ApplicationControlDraft): void {
     this.#application.captureApplicationControl(draft)
+    if (isLifecycleControl(draft)) this.#clock.rebase()
   }
 
   frame(frameTimeMilliseconds: number): void {
+    const snapshotBeforeFrame = this.#snapshotCache
     const beforeFrame = this.#application.getReadModel()
     const controlOnly = beforeFrame.paused || tickCanNeverAdvance(beforeFrame)
     this.#clock.setPaused(controlOnly)
@@ -89,7 +131,10 @@ export class ExtractionRuntime<TRead> {
         this.#clock.setPaused(false)
         this.#runPreparedTick()
       }
-      this.#synchronizeClockPause()
+      const afterFrame = this.#synchronizeClockPause()
+      this.#snapshotCache = sameApplicationReadModel(beforeFrame, afterFrame)
+        ? snapshotBeforeFrame
+        : null
       return
     }
 
@@ -112,10 +157,14 @@ export class ExtractionRuntime<TRead> {
       this.#runPreparedTick()
       return true
     })
-    this.#synchronizeClockPause()
+    const afterFrame = this.#synchronizeClockPause()
+    this.#snapshotCache = sameApplicationReadModel(beforeFrame, afterFrame)
+      ? snapshotBeforeFrame
+      : null
   }
 
   #runPreparedTick(): void {
+    this.#snapshotCache = null
     const tick = this.#application.getNextTick()
     this.#simulation.beginTick({
       tick,
@@ -143,31 +192,43 @@ export class ExtractionRuntime<TRead> {
     }
 
     if (committed !== null) {
-      this.#lastEvents = (committed as TickCommit).events
+      this.#lastEvents = Object.freeze([...(committed as TickCommit).events])
+      this.#snapshotCache = null
       this.#onCommitted?.(this.snapshot())
     }
   }
 
   #resetSimulationAfterCutover(): void {
     this.#simulation.reset()
-    this.#lastEvents = []
+    this.#lastEvents = EMPTY_DOMAIN_EVENTS
+    this.#snapshotCache = null
     this.#clock.resetMetrics()
     this.#synchronizeClockPause()
   }
 
-  #synchronizeClockPause(): void {
+  #synchronizeClockPause(): ApplicationReadModel {
     const model = this.#application.getReadModel()
     this.#clock.setPaused(model.paused || tickCanNeverAdvance(model))
+    return model
   }
 
   snapshot(): ExtractionRuntimeSnapshot<TRead> {
-    return {
-      application: this.#application.getReadModel(),
+    if (this.#snapshotCache !== null) return this.#snapshotCache
+    const application = this.#application.getReadModel()
+    this.#snapshotCache = Object.freeze({
+      application: Object.freeze({
+        ...application,
+        availableFireSourceIds: Object.freeze([
+          ...application.availableFireSourceIds,
+        ]),
+        pauseReasons: Object.freeze([...application.pauseReasons]),
+      }),
       domain: this.#application.getDomainState(),
       simulation: this.#simulation.read(),
-      events: [...this.#lastEvents],
-      clock: this.#clock.getMetrics(),
-    }
+      events: this.#lastEvents,
+      clock: Object.freeze(this.#clock.getMetrics()),
+    })
+    return this.#snapshotCache
   }
 
   getSessionArchives(): readonly SessionArchive[] {

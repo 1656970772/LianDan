@@ -11,6 +11,7 @@ import {
 import { configIssue, type ConfigIssue } from './errors'
 import { computeSimulationContentFingerprint } from './fingerprint'
 import { createM2SimulationFingerprintInput } from './m2-fingerprint-input'
+import { computeM2PresentationContentFingerprint } from './m2-presentation-fingerprint'
 import type {
   M2GameplaySchemaBundle,
   NormalizedM2Config,
@@ -35,6 +36,7 @@ export type NodeM2GameplayLoadResult =
       config: NormalizedM2Config
       compositionMaps: readonly DecodedCompositionMap[]
       simulationContentFingerprint: string
+      presentationContentFingerprint: string
     }>
   | Readonly<{ ok: false; issues: readonly ConfigIssue[] }>
 
@@ -45,6 +47,7 @@ interface ManifestShape {
   readonly pearlTypes: string
   readonly collector: string
   readonly interactions?: string
+  readonly presentation: string
 }
 
 type DocumentLoadResult =
@@ -67,6 +70,7 @@ function loadSchemas(projectRoot: string): M2GameplaySchemaBundle {
     pearlTypes: readSchema('m2-pearl-types.schema.json'),
     collector: readSchema('m2-collector.schema.json'),
     interactions: readSchema('m2-interactions.schema.json'),
+    presentation: readSchema('m2-presentation.schema.json'),
   }
 }
 
@@ -130,6 +134,7 @@ export async function loadAndValidatePublicM2GameplayConfig(
     ...(manifest.interactions === undefined
       ? []
       : [loadDocument(projectRoot, manifest.interactions)]),
+    loadDocument(projectRoot, manifest.presentation),
   ]
   const loadIssues = documentLoads.flatMap((result) =>
     result.ok ? [] : [result.issue],
@@ -146,6 +151,7 @@ export async function loadAndValidatePublicM2GameplayConfig(
     pearlTypes: documents[2]!,
     collector: documents[3]!,
     ...(manifest.interactions === undefined ? {} : { interactions: documents[4]! }),
+    presentation: documents[manifest.interactions === undefined ? 4 : 5]!,
   }
   const gameplayResult = validateAndNormalizeM2GameplayConfig(
     raw,
@@ -219,14 +225,18 @@ export async function loadAndValidatePublicM2GameplayConfig(
       baseResult.compositionMaps,
     ),
   )
+  const presentationContentFingerprint =
+    await computeM2PresentationContentFingerprint(gameplayResult.presentation)
   return {
     ok: true,
     config: Object.freeze({
       schemaVersion: 1,
       base: baseResult.config,
       gameplay: gameplayResult.config,
+      presentation: gameplayResult.presentation,
     }),
     compositionMaps: baseResult.compositionMaps,
     simulationContentFingerprint: fingerprint.simulationContentFingerprint,
+    presentationContentFingerprint,
   }
 }

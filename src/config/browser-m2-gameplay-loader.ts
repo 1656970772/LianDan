@@ -4,6 +4,7 @@ import manifestSchemaText from '../../schemas/config/m2-config-set.schema.json?r
 import pearlTypesSchemaText from '../../schemas/config/m2-pearl-types.schema.json?raw'
 import prototypeSchemaText from '../../schemas/config/m2-prototype.schema.json?raw'
 import interactionsSchemaText from '../../schemas/config/m2-interactions.schema.json?raw'
+import presentationSchemaText from '../../schemas/config/m2-presentation.schema.json?raw'
 
 import {
   decodeBrowserPng,
@@ -19,6 +20,7 @@ import {
 import { configIssue, type ConfigIssue } from './errors'
 import { computeSimulationContentFingerprint } from './fingerprint'
 import { createM2SimulationFingerprintInput } from './m2-fingerprint-input'
+import { computeM2PresentationContentFingerprint } from './m2-presentation-fingerprint'
 import type {
   M2GameplaySchemaBundle,
   NormalizedM2Config,
@@ -46,6 +48,7 @@ export type BrowserM2GameplayLoadResult =
       config: NormalizedM2Config
       compositionMaps: readonly DecodedCompositionMap[]
       simulationContentFingerprint: string
+      presentationContentFingerprint: string
     }>
   | Readonly<{ ok: false; issues: readonly ConfigIssue[] }>
 
@@ -56,6 +59,7 @@ interface ManifestShape {
   readonly pearlTypes: string
   readonly collector: string
   readonly interactions?: string
+  readonly presentation: string
 }
 
 type DocumentLoadResult =
@@ -69,6 +73,7 @@ const schemas: M2GameplaySchemaBundle = Object.freeze({
   pearlTypes: JSON.parse(pearlTypesSchemaText) as Record<string, unknown>,
   collector: JSON.parse(collectorSchemaText) as Record<string, unknown>,
   interactions: JSON.parse(interactionsSchemaText) as Record<string, unknown>,
+  presentation: JSON.parse(presentationSchemaText) as Record<string, unknown>,
 })
 
 async function fetchDocument(
@@ -128,6 +133,7 @@ export async function loadBrowserM2GameplayConfig(
     ...(manifest.interactions === undefined
       ? []
       : [fetchDocument(fetcher, manifest.interactions)]),
+    fetchDocument(fetcher, manifest.presentation),
   ])
   if (!baseResult.ok) return baseResult
 
@@ -146,6 +152,7 @@ export async function loadBrowserM2GameplayConfig(
     pearlTypes: documents[2]!,
     collector: documents[3]!,
     ...(manifest.interactions === undefined ? {} : { interactions: documents[4]! }),
+    presentation: documents[manifest.interactions === undefined ? 4 : 5]!,
   }
   const gameplayResult = validateAndNormalizeM2GameplayConfig(
     raw,
@@ -238,14 +245,18 @@ export async function loadBrowserM2GameplayConfig(
       baseResult.compositionMaps,
     ),
   )
+  const presentationContentFingerprint =
+    await computeM2PresentationContentFingerprint(gameplayResult.presentation)
   return {
     ok: true,
     config: Object.freeze({
       schemaVersion: 1,
       base: baseResult.config,
       gameplay: gameplayResult.config,
+      presentation: gameplayResult.presentation,
     }),
     compositionMaps: baseResult.compositionMaps,
     simulationContentFingerprint: fingerprint.simulationContentFingerprint,
+    presentationContentFingerprint,
   }
 }

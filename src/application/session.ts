@@ -1,5 +1,6 @@
 import {
   addMaterialServingFromBatch,
+  advanceFurnaceTemperature,
   applyRuleCommand,
   createDomainState,
   deriveCanFinish,
@@ -748,6 +749,10 @@ export class ExtractionApplication {
             this.#rules,
           )
           this.#domainState = settleRequestedCompletion(this.#domainState)
+          this.#domainState = advanceFurnaceTemperature(
+            this.#domainState,
+            this.#rules,
+          )
         }
       }
       if (phase8Committed) hooks.beforeTickFinalized?.()
@@ -906,6 +911,7 @@ export class ExtractionApplication {
         this.#domainState.equippedFireSourceId !== null && this.#domainState.isSpraying
           ? this.#domainState.fireSize
           : 0,
+      furnaceTemperature: this.#domainState.furnaceTemperature,
       canFinish: deriveCanFinish(this.#domainState),
       lossWarningLevel: this.#domainState.lossWarningLevel,
       failureResult: this.#domainState.failureResult,
