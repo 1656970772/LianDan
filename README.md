@@ -4,6 +4,10 @@
 
 本项目不模拟逐帧炼制过程。网页验证稳定后，规则配置和确定性测试向量将作为 Unity 正式实现的依据。
 
+![炼丹规则模拟器预览](docs/assets/simulator-preview.png)
+
+当前版本包含 18 种材料、8 种正式丹药、14 个确定性预设与 29 张原创 PNG 图标；成功、未成丹、残丹、废丹、受约束异丹和炸炉分支均可直接测试。
+
 ## 本地运行
 
 ```powershell
@@ -13,9 +17,14 @@ npm run dev
 
 ## 验证
 
+首次运行真实浏览器验收前安装 Chromium：
+
 ```powershell
+npx playwright install chromium
 npm run check
 ```
+
+`npm run check` 会依次执行 Vitest、生产构建和 Playwright 主流程测试。仅重建图标时运行 `npm run assets:generate`。
 
 ## 文档
 
