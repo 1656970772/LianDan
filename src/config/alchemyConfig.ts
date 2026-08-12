@@ -380,6 +380,16 @@ const inventory: AlchemyConfig["inventory"] = [
   { materialId: "material_ice_core_2", quantity: 8 },
 ];
 
+const materialFilters: AlchemyConfig["materialFilters"] = [
+  { id: "property_all", label: "全部", tagIds: [] },
+  { id: "property_cold", label: "寒性", tagIds: ["nature_cold"] },
+  { id: "property_hot", label: "热性", tagIds: ["nature_hot"] },
+  { id: "property_mild", label: "平性", tagIds: ["nature_mild"] },
+  { id: "property_toxic", label: "毒性", tagIds: ["risk_toxic"] },
+  { id: "property_qi", label: "补气", tagIds: ["effect_gather_qi", "effect_restore_qi"] },
+  { id: "property_blood", label: "活血", tagIds: ["effect_blood_move"] },
+];
+
 const factorGroups: AlchemyConfig["factorGroups"] = [
   { id: "group_alchemist", name: "炼药师", description: "炼药师的品阶、魂力与真元基础。", order: 10 },
   { id: "group_craft", name: "火候工艺", description: "一次推演的工艺质量摘要。", order: 20 },
@@ -975,7 +985,7 @@ function presetInput(
 ): SimulationInput {
   return {
     schemaVersion: "1.0",
-    configVersion: "1.1.0",
+    configVersion: "1.2.0",
     materials: presetMaterials(entries),
     factors: { ...defaultFactorValues, ...overrides },
     seed,
@@ -1060,7 +1070,7 @@ const presets: AlchemyConfig["presets"] = [
 
 export const alchemyConfig: AlchemyConfig = {
   schemaVersion: "1.0",
-  configVersion: "1.1.0",
+  configVersion: "1.2.0",
   meta: {
     name: "炼丹规则模拟器初版配置",
     description: "用于网页端规则调试与 Unity 确定性迁移的受控动态成丹配置。",
@@ -1078,6 +1088,7 @@ export const alchemyConfig: AlchemyConfig = {
   materials,
   recipeSlots,
   inventory,
+  materialFilters,
   factorGroups,
   factors,
   optionCatalogs,

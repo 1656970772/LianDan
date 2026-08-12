@@ -423,13 +423,67 @@ pre {
 .material-panel {
   display: grid;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.backpack-body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.backpack-main {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.property-filters {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 15px 8px;
+  border-right: 1px solid var(--bronze-soft);
+  background: linear-gradient(90deg, rgba(13, 24, 20, 0.96), rgba(8, 15, 13, 0.96));
+  overflow-y: auto;
+}
+
+.property-filters__title {
+  color: #d9c59a;
+  padding: 2px 4px 3px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.property-filter {
+  min-height: 42px;
+  border: 1px solid var(--ink-600);
+  border-radius: var(--radius);
+  background: var(--ink-900);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.property-filter:hover,
+.property-filter:focus-visible,
+.property-filter--active {
+  border-color: #3f765f;
+  background: #14261f;
+  color: var(--jade-strong);
+}
+
+.property-filter--active {
+  box-shadow: inset 2px 0 0 var(--jade);
 }
 
 .backpack-controls {
   display: grid;
   gap: 10px;
-  padding: 13px 14px 10px;
+  padding: 13px 10px 10px;
 }
 
 .backpack-controls .search-field input {
@@ -489,8 +543,12 @@ pre {
   align-content: start;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
-  padding: 4px 14px 16px;
+  padding: 4px 10px 16px;
   overflow-y: auto;
+}
+
+.backpack-grid .compact-empty {
+  grid-column: 1 / -1;
 }
 
 .backpack-item {
@@ -1862,6 +1920,12 @@ pre {
   color: var(--text-muted);
 }
 
+@media (min-width: 1280px) and (max-width: 1499px) {
+  .backpack-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1279px) {
   .app-shell {
     display: block;
@@ -1951,7 +2015,21 @@ pre {
   .backpack-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 7px;
-    padding-inline: 10px;
+    padding-inline: 8px;
+  }
+
+  .backpack-body {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .property-filters {
+    gap: 6px;
+    padding-inline: 6px;
+  }
+
+  .property-filter {
+    min-height: 39px;
+    font-size: 10px;
   }
 
   .recipe-slots {

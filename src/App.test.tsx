@@ -79,6 +79,24 @@ describe("炼丹规则推演台", () => {
     expect(within(tooltip).getByText(/寒性 98/)).toBeInTheDocument();
   });
 
+  it("左侧药性栏可与顶部材料分类组合筛选", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const propertyFilters = screen.getByRole("navigation", { name: "药性筛选" });
+    for (const label of ["全部", "寒性", "热性", "平性", "毒性", "补气", "活血"]) {
+      expect(within(propertyFilters).getByRole("button", { name: label })).toBeInTheDocument();
+    }
+
+    await user.click(within(propertyFilters).getByRole("button", { name: "热性" }));
+    expect(screen.getByRole("button", { name: /火灵根，背包剩余/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /寒髓枝，背包剩余/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "魔核" }));
+    expect(screen.getByRole("button", { name: /火系三阶魔核，背包剩余/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /火灵根，背包剩余/ })).not.toBeInTheDocument();
+  });
+
   it("点击主操作后显示最终丹药与折叠判定依据", async () => {
     const user = userEvent.setup();
     render(<App />);

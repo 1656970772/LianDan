@@ -46,6 +46,13 @@ test("六槽支持选中后点击加一，并可拖拽批量放入", async ({ pa
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/");
 
+  const propertyFilters = page.getByRole("navigation", { name: "药性筛选" });
+  await expect(propertyFilters.getByRole("button")).toHaveCount(7);
+  await propertyFilters.getByRole("button", { name: "热性" }).click();
+  await expect(page.getByRole("button", { name: /^火灵根，背包剩余/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^寒髓枝，背包剩余/ })).toHaveCount(0);
+  await propertyFilters.getByRole("button", { name: "全部" }).click();
+
   const slots = page.locator(".recipe-slots .recipe-slot");
   await expect(slots).toHaveCount(6);
   await expect(page.getByRole("button", { name: /^主药一，/ })).toBeVisible();
@@ -75,7 +82,15 @@ test("六槽支持选中后点击加一，并可拖拽批量放入", async ({ pa
 
   const fireRoot = page.getByRole("button", { name: /^火灵根，背包剩余 \d+ 份$/ });
   const catalystSlot = page.locator('[data-slot-id="catalyst"]');
-  await fireRoot.dragTo(catalystSlot);
+  await fireRoot.scrollIntoViewIfNeeded();
+  await catalystSlot.scrollIntoViewIfNeeded();
+  const [sourceBox, targetBox] = await Promise.all([fireRoot.boundingBox(), catalystSlot.boundingBox()]);
+  expect(sourceBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 12 });
+  await page.mouse.up();
 
   const quantityDialog = page.getByRole("dialog", { name: "火灵根" });
   await expect(quantityDialog).toBeVisible();

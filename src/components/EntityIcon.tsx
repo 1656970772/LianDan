@@ -18,6 +18,7 @@ export function EntityIcon({ src, name, size = "medium" }: EntityIconProps) {
           className="entity-icon__image"
           src={src}
           alt=""
+          draggable={false}
           onError={() => setFailed(true)}
         />
       ) : null}

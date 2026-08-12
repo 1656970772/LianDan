@@ -230,11 +230,14 @@ export function validateConfig(config: AlchemyConfig): ConfigValidationResult {
   if (!config.configVersion) errors.push("configVersion 不得为空");
   const materialKindProfiles = Array.isArray(config.materialKindProfiles) ? config.materialKindProfiles : [];
   if (!Array.isArray(config.materialKindProfiles)) errors.push("materialKindProfiles 必须是数组");
+  const materialFilters = Array.isArray(config.materialFilters) ? config.materialFilters : [];
+  if (!Array.isArray(config.materialFilters)) errors.push("materialFilters 必须是数组");
 
   const collections: Array<[string, Array<{ id: string }>]> = [
     ["tagDefinitions", config.tagDefinitions], ["materialStates", config.materialStates],
     ["materialOrigins", config.materialOrigins], ["materialKindProfiles", materialKindProfiles],
     ["materials", config.materials],
+    ["materialFilters", materialFilters],
     ["factorGroups", config.factorGroups], ["factors", config.factors],
     ["optionCatalogs", config.optionCatalogs], ["effects", config.effects],
     ["traits", config.traits], ["evaluations", config.evaluations],
@@ -256,6 +259,32 @@ export function validateConfig(config: AlchemyConfig): ConfigValidationResult {
   const traitIds = new Set(config.traits.map((item) => item.id));
   const evaluationIds = new Set<string>(config.evaluations.map((item) => item.id));
   const refs: ReferenceSets = { tags: tagIds, materials: materialIds, factors: factorMap, states: stateIds, origins: originIds };
+
+  if (!materialFilters.length) errors.push("materialFilters 至少需要一个筛选项");
+  let universalFilterCount = 0;
+  materialFilters.forEach((filter, index) => {
+    if (!filter || typeof filter !== "object") {
+      errors.push(`materialFilters[${index}] 必须是对象`);
+      return;
+    }
+    if (typeof filter.label !== "string" || !filter.label.trim()) {
+      errors.push(`materialFilters[${index}].label 不得为空`);
+    }
+    if (!Array.isArray(filter.tagIds)) {
+      errors.push(`materialFilters[${index}].tagIds 必须是数组`);
+      return;
+    }
+    if (filter.tagIds.length === 0) universalFilterCount += 1;
+    if (new Set(filter.tagIds).size !== filter.tagIds.length) {
+      errors.push(`materialFilters[${index}].tagIds 不得重复`);
+    }
+    filter.tagIds.forEach((tagId) => {
+      if (!tagIds.has(tagId)) errors.push(`materialFilters[${index}].tagIds 引用不存在标签：${tagId}`);
+    });
+  });
+  if (materialFilters.length && universalFilterCount !== 1) {
+    errors.push("materialFilters 必须且只能包含一个全部筛选项");
+  }
 
   if (!Array.isArray(config.recipeSlots) || config.recipeSlots.length !== 6) {
     errors.push("recipeSlots 必须配置六个丹方槽位");

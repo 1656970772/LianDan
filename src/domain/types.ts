@@ -41,6 +41,12 @@ export interface MaterialInventoryEntry {
   quantity: number;
 }
 
+export interface MaterialFilterDefinition {
+  id: string;
+  label: string;
+  tagIds: string[];
+}
+
 export type TagCategory =
   | "nature"
   | "effect"
@@ -340,6 +346,7 @@ export interface AlchemyConfig {
   materials: MaterialDefinition[];
   recipeSlots: RecipeSlotDefinition[];
   inventory: MaterialInventoryEntry[];
+  materialFilters: MaterialFilterDefinition[];
   factorGroups: FactorGroup[];
   factors: FactorDefinition[];
   optionCatalogs: OptionCatalog[];

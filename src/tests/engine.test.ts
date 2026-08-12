@@ -162,6 +162,17 @@ describe("炼丹规则引擎", () => {
     expect(validateConfig(mismatchedCapacity).errors.join(" ")).toContain("maxMaterials 必须与 recipeSlots 数量一致");
   });
 
+  it("药性筛选配置引用合法标签并在损坏时返回诊断", () => {
+    const invalidReference = structuredClone(alchemyConfig) as AlchemyConfig;
+    invalidReference.materialFilters[0]!.tagIds = ["tag_not_found"];
+    expect(validateConfig(invalidReference).errors.join(" ")).toContain("引用不存在标签：tag_not_found");
+
+    const missingFilters = structuredClone(alchemyConfig) as AlchemyConfig;
+    delete (missingFilters as Partial<AlchemyConfig>).materialFilters;
+    expect(() => validateConfig(missingFilters)).not.toThrow();
+    expect(validateConfig(missingFilters).errors.join(" ")).toContain("materialFilters 必须是数组");
+  });
+
   it("xorshift32 使用无符号 32 位语义且零种子不锁死", () => {
     expect(normalizeSeed(0)).toBe(0x6d2b79f5);
     const first = new XorShift32(1);
