@@ -35,9 +35,7 @@ describe("FactorPanel", () => {
         config={config}
         factors={{ ...defaultFactors(config), test_pressure: 4 }}
         errors={{}}
-        validationSummary={undefined}
         onChange={onChange}
-        onRun={vi.fn()}
       />,
     );
 

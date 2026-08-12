@@ -139,6 +139,29 @@ describe("炼丹规则引擎", () => {
     expect(validateConfig(missingFieldConfig).errors.join(" ")).toContain("allowedStateIds 不得为空");
   });
 
+  it("六槽和库存配置损坏时返回诊断而不抛出", () => {
+    const missingSlots = structuredClone(alchemyConfig) as AlchemyConfig;
+    delete (missingSlots as Partial<AlchemyConfig>).recipeSlots;
+    expect(() => validateConfig(missingSlots)).not.toThrow();
+    expect(validateConfig(missingSlots).errors.join(" ")).toContain("recipeSlots 必须配置六个丹方槽位");
+
+    const missingInventory = structuredClone(alchemyConfig) as AlchemyConfig;
+    delete (missingInventory as Partial<AlchemyConfig>).inventory;
+    expect(() => validateConfig(missingInventory)).not.toThrow();
+    expect(validateConfig(missingInventory).errors.join(" ")).toContain("inventory 必须是数组");
+
+    const brokenEntries = structuredClone(alchemyConfig) as AlchemyConfig;
+    brokenEntries.recipeSlots[0] = null as unknown as AlchemyConfig["recipeSlots"][number];
+    brokenEntries.inventory[0] = null as unknown as AlchemyConfig["inventory"][number];
+    expect(() => validateConfig(brokenEntries)).not.toThrow();
+    expect(validateConfig(brokenEntries).errors.join(" ")).toContain("recipeSlots[0] 必须是对象");
+    expect(validateConfig(brokenEntries).errors.join(" ")).toContain("inventory[0] 必须是对象");
+
+    const mismatchedCapacity = structuredClone(alchemyConfig) as AlchemyConfig;
+    mismatchedCapacity.meta.maxMaterials = 20;
+    expect(validateConfig(mismatchedCapacity).errors.join(" ")).toContain("maxMaterials 必须与 recipeSlots 数量一致");
+  });
+
   it("xorshift32 使用无符号 32 位语义且零种子不锁死", () => {
     expect(normalizeSeed(0)).toBe(0x6d2b79f5);
     const first = new XorShift32(1);

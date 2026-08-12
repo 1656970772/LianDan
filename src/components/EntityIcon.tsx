@@ -3,7 +3,7 @@ import { useState } from "react";
 interface EntityIconProps {
   src?: string;
   name: string;
-  size?: "small" | "medium" | "large";
+  size?: "small" | "medium" | "large" | "inventory" | "slot";
 }
 
 export function EntityIcon({ src, name, size = "medium" }: EntityIconProps) {

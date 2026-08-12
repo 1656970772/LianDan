@@ -27,6 +27,20 @@ export interface ConfigMeta {
   qualityYieldDeltas: Record<Quality, number>;
 }
 
+export type RecipeSlotRole = "main" | "auxiliary" | "catalyst";
+
+export interface RecipeSlotDefinition {
+  id: string;
+  role: RecipeSlotRole;
+  label: string;
+  order: number;
+}
+
+export interface MaterialInventoryEntry {
+  materialId: string;
+  quantity: number;
+}
+
 export type TagCategory =
   | "nature"
   | "effect"
@@ -324,6 +338,8 @@ export interface AlchemyConfig {
   materialOrigins: MaterialOrigin[];
   materialKindProfiles: MaterialKindProfile[];
   materials: MaterialDefinition[];
+  recipeSlots: RecipeSlotDefinition[];
+  inventory: MaterialInventoryEntry[];
   factorGroups: FactorGroup[];
   factors: FactorDefinition[];
   optionCatalogs: OptionCatalog[];

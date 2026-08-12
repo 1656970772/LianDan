@@ -350,6 +350,36 @@ const materials: MaterialDefinition[] = [
   ], "报告事实：冰心丹需冰属性魔核；阶位为项目补全。"),
 ];
 
+const recipeSlots: AlchemyConfig["recipeSlots"] = [
+  { id: "main_1", role: "main", label: "主药一", order: 0 },
+  { id: "main_2", role: "main", label: "主药二", order: 1 },
+  { id: "main_3", role: "main", label: "主药三", order: 2 },
+  { id: "auxiliary_1", role: "auxiliary", label: "辅药一", order: 3 },
+  { id: "auxiliary_2", role: "auxiliary", label: "辅药二", order: 4 },
+  { id: "catalyst", role: "catalyst", label: "药引", order: 5 },
+];
+
+const inventory: AlchemyConfig["inventory"] = [
+  { materialId: "material_moyelian", quantity: 12 },
+  { materialId: "material_shexian_guo", quantity: 8 },
+  { materialId: "material_juling_cao", quantity: 10 },
+  { materialId: "material_water_core_2", quantity: 6 },
+  { materialId: "material_ningxue_cao", quantity: 15 },
+  { materialId: "material_huoqi_guo", quantity: 9 },
+  { materialId: "material_yingsu_hua", quantity: 7 },
+  { materialId: "material_shenggu_hua", quantity: 8 },
+  { materialId: "material_huiling_chiguo", quantity: 6 },
+  { materialId: "material_xuelian_jing", quantity: 5 },
+  { materialId: "material_bingling_yancao", quantity: 12 },
+  { materialId: "material_qingti_cao", quantity: 4 },
+  { materialId: "material_binghuo_ronghun_guo", quantity: 7 },
+  { materialId: "material_shuiling_lianzi", quantity: 9 },
+  { materialId: "material_hansui_zhi", quantity: 11 },
+  { materialId: "material_huoling_gen", quantity: 5 },
+  { materialId: "material_fire_core_3", quantity: 6 },
+  { materialId: "material_ice_core_2", quantity: 8 },
+];
+
 const factorGroups: AlchemyConfig["factorGroups"] = [
   { id: "group_alchemist", name: "炼药师", description: "炼药师的品阶、魂力与真元基础。", order: 10 },
   { id: "group_craft", name: "火候工艺", description: "一次推演的工艺质量摘要。", order: 20 },
@@ -945,7 +975,7 @@ function presetInput(
 ): SimulationInput {
   return {
     schemaVersion: "1.0",
-    configVersion: "1.0.0",
+    configVersion: "1.1.0",
     materials: presetMaterials(entries),
     factors: { ...defaultFactorValues, ...overrides },
     seed,
@@ -1030,11 +1060,11 @@ const presets: AlchemyConfig["presets"] = [
 
 export const alchemyConfig: AlchemyConfig = {
   schemaVersion: "1.0",
-  configVersion: "1.0.0",
+  configVersion: "1.1.0",
   meta: {
     name: "炼丹规则模拟器初版配置",
     description: "用于网页端规则调试与 Unity 确定性迁移的受控动态成丹配置。",
-    maxMaterials: 20,
+    maxMaterials: recipeSlots.length,
     maxCandidates: 8,
     maxPillQuantity: 12,
     residualMatchRatio: 0.6,
@@ -1046,6 +1076,8 @@ export const alchemyConfig: AlchemyConfig = {
   materialOrigins,
   materialKindProfiles,
   materials,
+  recipeSlots,
+  inventory,
   factorGroups,
   factors,
   optionCatalogs,

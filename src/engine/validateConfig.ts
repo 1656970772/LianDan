@@ -18,17 +18,27 @@ function finite(value: number): boolean {
 function pushDuplicateErrors(
   errors: string[],
   label: string,
-  items: Array<{ id: string }>,
+  items: unknown,
 ): void {
+  if (!Array.isArray(items)) {
+    errors.push(`${label} 必须是数组`);
+    return;
+  }
   const seen = new Set<string>();
   for (const [index, item] of items.entries()) {
-    if (!ID_PATTERN.test(item.id)) {
-      errors.push(`${label}[${index}].id 不符合稳定 ID 格式：${item.id}`);
+    if (!item || typeof item !== "object") {
+      errors.push(`${label}[${index}] 必须是对象`);
+      continue;
     }
-    if (seen.has(item.id)) {
-      errors.push(`${label} 存在重复 ID：${item.id}`);
+    const id = (item as { id?: unknown }).id;
+    if (typeof id !== "string" || !ID_PATTERN.test(id)) {
+      errors.push(`${label}[${index}].id 不符合稳定 ID 格式：${String(id)}`);
+      continue;
     }
-    seen.add(item.id);
+    if (seen.has(id)) {
+      errors.push(`${label} 存在重复 ID：${id}`);
+    }
+    seen.add(id);
   }
 }
 
@@ -168,6 +178,14 @@ export function validateSimulationInput(input: SimulationInput, config: AlchemyC
   if (input.materials.length > config.meta.maxMaterials) errors.push(`input.materials 超过上限 ${config.meta.maxMaterials}`);
 
   const materialMap = new Map(config.materials.map((item) => [item.id, item]));
+  const inventoryEntries = Array.isArray(config.inventory)
+    ? config.inventory.filter((item) => item && typeof item === "object")
+    : [];
+  const recipeSlotEntries = Array.isArray(config.recipeSlots)
+    ? config.recipeSlots.filter((slot) => slot && typeof slot === "object")
+    : [];
+  const inventoryMap = new Map(inventoryEntries.map((item) => [item.materialId, item.quantity]));
+  const validOrders = new Set(recipeSlotEntries.map((slot) => slot.order));
   const states = new Set(config.materialStates.map((item) => item.id));
   const origins = new Set(config.materialOrigins.map((item) => item.id));
   const seenMaterials = new Set<string>();
@@ -179,6 +197,7 @@ export function validateSimulationInput(input: SimulationInput, config: AlchemyC
     if (seenMaterials.has(item.materialId)) errors.push(`${path}.materialId 重复，同种材料应合并数量：${item.materialId}`);
     seenMaterials.add(item.materialId);
     if (!Number.isInteger(item.quantity) || item.quantity <= 0) errors.push(`${path}.quantity 必须是正整数`);
+    else if (item.quantity > (inventoryMap.get(item.materialId) ?? 0)) errors.push(`${path}.quantity 超过背包库存`);
     if (!states.has(item.stateId)) errors.push(`${path}.stateId 不存在：${item.stateId}`);
     else if (definition && (!Array.isArray(definition.allowedStateIds) || !definition.allowedStateIds.includes(item.stateId))) errors.push(`${path}.stateId 不适用于 ${definition.name}：${item.stateId}`);
     if (!origins.has(item.originId)) errors.push(`${path}.originId 不存在：${item.originId}`);
@@ -187,7 +206,7 @@ export function validateSimulationInput(input: SimulationInput, config: AlchemyC
     else if (definition && (item.years < definition.yearRange.min || item.years > definition.yearRange.max)) {
       errors.push(`${path}.years 超出 ${definition.name} 合法范围 ${definition.yearRange.min} 至 ${definition.yearRange.max}`);
     }
-    if (!Number.isInteger(item.order) || item.order < 0) errors.push(`${path}.order 必须是非负整数`);
+    if (!Number.isInteger(item.order) || !validOrders.has(item.order)) errors.push(`${path}.order 必须对应配置中的丹方槽位`);
     if (seenOrders.has(item.order)) errors.push(`${path}.order 重复：${item.order}`);
     seenOrders.add(item.order);
   });
@@ -238,8 +257,59 @@ export function validateConfig(config: AlchemyConfig): ConfigValidationResult {
   const evaluationIds = new Set<string>(config.evaluations.map((item) => item.id));
   const refs: ReferenceSets = { tags: tagIds, materials: materialIds, factors: factorMap, states: stateIds, origins: originIds };
 
+  if (!Array.isArray(config.recipeSlots) || config.recipeSlots.length !== 6) {
+    errors.push("recipeSlots 必须配置六个丹方槽位");
+  } else {
+    pushDuplicateErrors(errors, "recipeSlots", config.recipeSlots);
+    const slotOrders = new Set<number>();
+    const roleCounts = { main: 0, auxiliary: 0, catalyst: 0 };
+    config.recipeSlots.forEach((slot, index) => {
+      if (!slot || typeof slot !== "object") {
+        errors.push(`recipeSlots[${index}] 必须是对象`);
+        return;
+      }
+      if (typeof slot.label !== "string" || !slot.label.trim()) errors.push(`recipeSlots[${index}].label 不得为空`);
+      if (!Number.isInteger(slot.order) || slot.order < 0) errors.push(`recipeSlots[${index}].order 必须是非负整数`);
+      if (slotOrders.has(slot.order)) errors.push(`recipeSlots[${index}].order 不得重复`);
+      slotOrders.add(slot.order);
+      if (slot.role === "main" || slot.role === "auxiliary" || slot.role === "catalyst") {
+        roleCounts[slot.role] += 1;
+      } else {
+        errors.push(`recipeSlots[${index}].role 不是合法槽位类型：${String(slot.role)}`);
+      }
+    });
+    if (roleCounts.main !== 3 || roleCounts.auxiliary !== 2 || roleCounts.catalyst !== 1) {
+      errors.push("recipeSlots 必须包含三个主药槽、两个辅药槽和一个药引槽");
+    }
+  }
+  if (!Array.isArray(config.inventory)) {
+    errors.push("inventory 必须是数组");
+  } else {
+    const inventoryMaterialIds = new Set<string>();
+    config.inventory.forEach((entry, index) => {
+      if (!entry || typeof entry !== "object") {
+        errors.push(`inventory[${index}] 必须是对象`);
+        return;
+      }
+      if (typeof entry.materialId !== "string") {
+        errors.push(`inventory[${index}].materialId 必须是字符串`);
+        return;
+      }
+      if (!materialIds.has(entry.materialId)) errors.push(`inventory[${index}] 引用不存在材料：${entry.materialId}`);
+      if (inventoryMaterialIds.has(entry.materialId)) errors.push(`inventory[${index}].materialId 不得重复：${entry.materialId}`);
+      inventoryMaterialIds.add(entry.materialId);
+      if (!Number.isInteger(entry.quantity) || entry.quantity < 0) errors.push(`inventory[${index}].quantity 必须是非负整数`);
+    });
+    config.materials.forEach((material) => {
+      if (!inventoryMaterialIds.has(material.id)) errors.push(`inventory 缺少材料：${material.id}`);
+    });
+  }
+
   if (!finite(config.meta.residualMatchRatio) || config.meta.residualMatchRatio < 0 || config.meta.residualMatchRatio > 1) errors.push("meta.residualMatchRatio 必须在 0 至 1");
   if (!Number.isInteger(config.meta.maxMaterials) || config.meta.maxMaterials < 1) errors.push("meta.maxMaterials 必须是正整数");
+  if (Array.isArray(config.recipeSlots) && config.meta.maxMaterials !== config.recipeSlots.length) {
+    errors.push("meta.maxMaterials 必须与 recipeSlots 数量一致");
+  }
   if (!Number.isInteger(config.meta.maxCandidates) || config.meta.maxCandidates < 1) errors.push("meta.maxCandidates 必须是正整数");
   if (!Number.isInteger(config.meta.maxPillQuantity) || config.meta.maxPillQuantity < 1) errors.push("meta.maxPillQuantity 必须是正整数");
   (["lower", "middle", "upper", "supreme"] as const).forEach((quality) => {

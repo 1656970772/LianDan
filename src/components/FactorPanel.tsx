@@ -9,11 +9,8 @@ interface FactorPanelProps {
   config: AlchemyConfig;
   factors: Record<string, FactorValue>;
   errors?: Record<string, string>;
-  validationSummary: string | undefined;
-  resultIsStale?: boolean;
   disabled?: boolean;
   onChange: (factorId: string, value: FactorValue) => void;
-  onRun: () => void;
 }
 
 function visibilityMatches(condition: Condition | undefined, factors: Record<string, FactorValue>): boolean {
@@ -183,32 +180,26 @@ export function FactorPanel({
   config,
   factors,
   errors = {},
-  validationSummary,
-  resultIsStale = false,
   disabled = false,
   onChange,
-  onRun,
 }: FactorPanelProps) {
   const orderedGroups = [...config.factorGroups].sort((a, b) => a.order - b.order);
 
   return (
     <section className="panel factor-panel" aria-labelledby="factors-title">
-      <div className="panel__header">
-        <div>
-          <p className="panel__index">输入 B</p>
-          <h2 id="factors-title">炼制因素</h2>
-        </div>
-        <span className="panel__meta">配置驱动</span>
+      <div className="panel__header panel__header--ornate">
+        <h2 id="factors-title">炼制属性</h2>
+        <span>配置驱动</span>
       </div>
 
       <div className="factor-groups">
-        {orderedGroups.map((group, groupIndex) => {
+        {orderedGroups.map((group) => {
           const groupFactors = config.factors.filter((factor) => (
             factor.groupId === group.id && visibilityMatches(factor.visibilityCondition, factors)
           ));
           if (!groupFactors.length) return null;
           return (
-            <details className="factor-group" key={group.id} open={groupIndex < 2}>
+            <details className="factor-group" key={group.id} open>
               <summary>
                 <span>{group.name}</span>
                 <small>{groupFactors.length} 项</small>
@@ -235,26 +226,6 @@ export function FactorPanel({
         })}
       </div>
 
-      <div className="run-bar">
-        <div className="run-bar__status" aria-live="polite">
-          {validationSummary ? (
-            <span className="run-bar__error">{validationSummary}</span>
-          ) : resultIsStale ? (
-            <span className="run-bar__stale">输入已改变，结果待重新推演</span>
-          ) : (
-            <span>快捷键 Ctrl + Enter</span>
-          )}
-        </div>
-        <button
-          type="button"
-          className="button button--primary"
-          onClick={onRun}
-          disabled={disabled || Boolean(validationSummary)}
-          data-testid="simulate-button"
-        >
-          推演成丹
-        </button>
-      </div>
     </section>
   );
 }

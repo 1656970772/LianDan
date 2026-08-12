@@ -282,7 +282,7 @@ export const ResultPanel = forwardRef<HTMLHeadingElement, ResultPanelProps>(func
         <div>
           <p className="panel__index">输出</p>
           <h2 id="result-title" ref={ref} tabIndex={-1} aria-live="polite" aria-atomic="true">
-            推演结果<span className="sr-only">：{resultAnnouncement}</span>
+            成丹结果<span className="sr-only">：{resultAnnouncement}</span>
           </h2>
         </div>
         {stale ? <span className="stale-badge">结果已过期</span> : null}
@@ -346,49 +346,54 @@ export const ResultPanel = forwardRef<HTMLHeadingElement, ResultPanelProps>(func
             </div>
           )}
 
-          <Metrics result={result} config={config} />
+          <details className="result-details">
+            <summary>查看完整判定依据</summary>
+            <div className="result-details__body">
+              <Metrics result={result} config={config} />
 
-          {result.pill ? (
-            <section className="result-section" aria-labelledby="effects-title">
-              <div className="result-section__heading">
-                <h3 id="effects-title">功效与特质</h3>
-                <span>每项保留配置来源</span>
-              </div>
-              <div className="effect-list">
-                <EffectRow effect={result.pill.primaryEffect} label="主功效" />
-                {result.pill.secondaryEffects.map((effect) => <EffectRow key={effect.id} effect={effect} label="次要功效" />)}
-                {result.pill.sideEffects.map((effect) => <EffectRow key={effect.id} effect={effect} label="副作用" />)}
-                {result.pill.traits.map((trait) => <TraitRow key={trait.id} trait={trait} />)}
-              </div>
-            </section>
-          ) : null}
+              {result.pill ? (
+                <section className="result-section" aria-labelledby="effects-title">
+                  <div className="result-section__heading">
+                    <h3 id="effects-title">功效与特质</h3>
+                    <span>每项保留配置来源</span>
+                  </div>
+                  <div className="effect-list">
+                    <EffectRow effect={result.pill.primaryEffect} label="主功效" />
+                    {result.pill.secondaryEffects.map((effect) => <EffectRow key={effect.id} effect={effect} label="次要功效" />)}
+                    {result.pill.sideEffects.map((effect) => <EffectRow key={effect.id} effect={effect} label="副作用" />)}
+                    {result.pill.traits.map((trait) => <TraitRow key={trait.id} trait={trait} />)}
+                  </div>
+                </section>
+              ) : null}
 
-          <section className="result-section" aria-labelledby="reasons-title">
-            <div className="result-section__heading">
-              <h3 id="reasons-title">最终判定依据</h3>
-              <span>按语义分组，不是过程时间线</span>
+              <section className="result-section" aria-labelledby="reasons-title">
+                <div className="result-section__heading">
+                  <h3 id="reasons-title">最终判定依据</h3>
+                  <span>按语义分组，不是过程时间线</span>
+                </div>
+                <Reasons reasons={result.reasons} onLocateEvidence={onLocateEvidence} />
+              </section>
+
+              <section className="result-section" aria-labelledby="candidates-title">
+                <div className="result-section__heading">
+                  <h3 id="candidates-title">候选分析</h3>
+                  <span>命中身份与最接近的缺失条件</span>
+                </div>
+                <div className="candidate-list">
+                  {result.candidates.length
+                    ? result.candidates.map((candidate) => <Candidate key={candidate.prototypeId} candidate={candidate} />)
+                    : <p className="compact-empty">没有返回丹药候选。</p>}
+                </div>
+              </section>
+
+              {result.diagnostics.length ? (
+                <details className="diagnostics">
+                  <summary>查看补充诊断</summary>
+                  <pre>{result.diagnostics.join("\n")}</pre>
+                </details>
+              ) : null}
             </div>
-            <Reasons reasons={result.reasons} onLocateEvidence={onLocateEvidence} />
-          </section>
-
-          <section className="result-section" aria-labelledby="candidates-title">
-            <div className="result-section__heading">
-              <h3 id="candidates-title">候选分析</h3>
-              <span>命中身份与最接近的缺失条件</span>
-            </div>
-            <div className="candidate-list">
-              {result.candidates.length
-                ? result.candidates.map((candidate) => <Candidate key={candidate.prototypeId} candidate={candidate} />)
-                : <p className="compact-empty">没有返回丹药候选。</p>}
-            </div>
-          </section>
-
-          {result.diagnostics.length ? (
-            <details className="diagnostics">
-              <summary>查看补充诊断</summary>
-              <pre>{result.diagnostics.join("\n")}</pre>
-            </details>
-          ) : null}
+          </details>
         </div>
       )}
     </section>

@@ -14,6 +14,7 @@ import type {
 } from "./domain/types";
 import { FactorPanel } from "./components/FactorPanel";
 import { MaterialPanel } from "./components/MaterialPanel";
+import { RecipePanel } from "./components/RecipePanel";
 import { ResultPanel } from "./components/ResultPanel";
 import { WorkbenchToolbar } from "./components/WorkbenchToolbar";
 
@@ -86,6 +87,10 @@ function validateDraft(input: SimulationInput, config: AlchemyConfig): DraftVali
 
   const seenMaterialIds = new Set<string>();
   const seenOrders = new Set<number>();
+  const recipeSlots = Array.isArray(config.recipeSlots) ? config.recipeSlots : [];
+  const inventoryEntries = Array.isArray(config.inventory) ? config.inventory : [];
+  const validOrders = new Set(recipeSlots.map((slot) => slot.order));
+  const inventoryById = new Map(inventoryEntries.map((entry) => [entry.materialId, entry.quantity]));
   for (const material of input.materials) {
     const definition = config.materials.find((item) => item.id === material.materialId);
     if (!definition) {
@@ -98,6 +103,8 @@ function validateDraft(input: SimulationInput, config: AlchemyConfig): DraftVali
     seenMaterialIds.add(material.materialId);
     if (!Number.isSafeInteger(material.quantity) || material.quantity < 1) {
       materialErrors[`${material.materialId}.quantity`] = "数量必须是大于 0 的整数。";
+    } else if (material.quantity > (inventoryById.get(material.materialId) ?? 0)) {
+      materialErrors[`${material.materialId}.quantity`] = `${definition.name}超过背包库存。`;
     }
     if (!Number.isSafeInteger(material.years)
       || material.years < definition.yearRange.min
@@ -114,8 +121,10 @@ function validateDraft(input: SimulationInput, config: AlchemyConfig): DraftVali
     } else if (!definition.allowedOriginIds.includes(material.originId)) {
       materialErrors[`${material.materialId}.originId`] = `${definition.name}不能使用当前来源。`;
     }
-    if (!Number.isSafeInteger(material.order) || seenOrders.has(material.order)) {
-      materialErrors.materials = "投料顺序必须是唯一整数。";
+    if (!Number.isSafeInteger(material.order) || !validOrders.has(material.order)) {
+      materialErrors.materials = "材料必须放入配置定义的丹方槽位。";
+    } else if (seenOrders.has(material.order)) {
+      materialErrors.materials = "每个丹方槽位只能放入一种药材。";
     }
     seenOrders.add(material.order);
   }
@@ -185,15 +194,17 @@ function isSimulationInput(value: unknown): value is SimulationInput {
 function normalizedInput(input: SimulationInput): SimulationInput {
   const snapshot = cloneInput(input);
   snapshot.materials = [...snapshot.materials]
-    .sort((a, b) => a.order - b.order)
-    .map((material, order) => ({ ...material, order }));
+    .sort((a, b) => a.order - b.order);
   return snapshot;
 }
 
 export default function App() {
   const config = alchemyConfig;
+  const recipeSlots = Array.isArray(config.recipeSlots) ? config.recipeSlots : [];
+  const inventoryEntries = Array.isArray(config.inventory) ? config.inventory : [];
   const initialPreset = defaultPreset(config);
   const [draft, setDraft] = useState<SimulationInput>(() => createDefaultInput(config));
+  const [selectedSlotId, setSelectedSlotId] = useState(recipeSlots[0]?.id ?? "");
   const [selectedPresetId, setSelectedPresetId] = useState(initialPreset?.id ?? "");
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [lastRunInput, setLastRunInput] = useState<SimulationInput | null>(null);
@@ -271,63 +282,72 @@ export default function App() {
     setExecutionError(null);
   }
 
-  function handleAddMaterial(materialId: string) {
+  function handleAssignMaterial(
+    slotOrder: number,
+    materialId: string,
+    quantity: number,
+    mode: "increment" | "set",
+  ) {
     updateDraft((current) => {
-      const existing = current.materials.find((item) => item.materialId === materialId);
-      if (existing) {
-        return {
-          ...current,
-          materials: current.materials.map((item) => item.materialId === materialId
-            ? { ...item, quantity: item.quantity + 1 }
-            : item),
-        };
-      }
-      if (current.materials.length >= config.meta.maxMaterials) return current;
       const definition = config.materials.find((item) => item.id === materialId);
       if (!definition) return current;
-      const material: MaterialInput = {
+      const inventory = inventoryEntries.find((entry) => entry.materialId === materialId)?.quantity ?? 0;
+      if (inventory < 1) return current;
+      const existing = current.materials.find((item) => item.materialId === materialId);
+      const target = current.materials.find((item) => item.order === slotOrder);
+      const nextQuantity = Math.max(1, Math.min(
+        inventory,
+        mode === "increment" ? (existing?.quantity ?? 0) + quantity : quantity,
+      ));
+      const material: MaterialInput = existing ? {
+        ...existing,
+        quantity: nextQuantity,
+        order: slotOrder,
+      } : {
         materialId,
-        quantity: 1,
+        quantity: nextQuantity,
         stateId: definition.defaultStateId,
         originId: definition.defaultOriginId,
         years: definition.defaultYears,
-        order: current.materials.length,
+        order: slotOrder,
       };
-      return { ...current, materials: [...current.materials, material] };
+      return {
+        ...current,
+        materials: [
+          ...current.materials.filter((item) => (
+            item.materialId !== materialId
+            && item.materialId !== target?.materialId
+            && item.order !== slotOrder
+          )),
+          material,
+        ].sort((left, right) => left.order - right.order),
+      };
     });
   }
 
-  function handleMaterialChange(materialId: string, patch: Partial<MaterialInput>) {
+  function handleMaterialClick(materialId: string) {
+    const selectedSlot = recipeSlots.find((slot) => slot.id === selectedSlotId);
+    if (!selectedSlot) {
+      setNotice({ tone: "neutral", text: "请先选择中间的一个丹方槽位。" });
+      return;
+    }
+    handleAssignMaterial(selectedSlot.order, materialId, 1, "increment");
+  }
+
+  function handleDecrementSlot(slotOrder: number) {
     updateDraft((current) => ({
       ...current,
-      materials: current.materials.map((material) => material.materialId === materialId
-        ? { ...material, ...patch }
-        : material),
+      materials: current.materials.flatMap((material) => {
+        if (material.order !== slotOrder) return [material];
+        return material.quantity > 1 ? [{ ...material, quantity: material.quantity - 1 }] : [];
+      }),
     }));
   }
 
-  function handleMoveMaterial(materialId: string, direction: -1 | 1) {
-    updateDraft((current) => {
-      const ordered = [...current.materials].sort((a, b) => a.order - b.order);
-      const index = ordered.findIndex((material) => material.materialId === materialId);
-      const targetIndex = index + direction;
-      if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return current;
-      const selected = ordered[index];
-      const target = ordered[targetIndex];
-      if (!selected || !target) return current;
-      ordered[index] = target;
-      ordered[targetIndex] = selected;
-      return { ...current, materials: ordered.map((material, order) => ({ ...material, order })) };
-    });
-  }
-
-  function handleRemoveMaterial(materialId: string) {
+  function handleClearSlot(slotOrder: number) {
     updateDraft((current) => ({
       ...current,
-      materials: current.materials
-        .filter((material) => material.materialId !== materialId)
-        .sort((a, b) => a.order - b.order)
-        .map((material, order) => ({ ...material, order })),
+      materials: current.materials.filter((material) => material.order !== slotOrder),
     }));
   }
 
@@ -345,6 +365,7 @@ export default function App() {
     setLastRunInput(null);
     setExecutionError(null);
     setNotice({ tone: "success", text: "已恢复默认预设和因素值。" });
+    setSelectedSlotId(recipeSlots[0]?.id ?? "");
   }
 
   async function handleImport(file: File) {
@@ -419,31 +440,40 @@ export default function App() {
         <MaterialPanel
           config={config}
           materials={draft.materials}
-          errors={validation.materialErrors}
+          selectedSlotLabel={recipeSlots.find((slot) => slot.id === selectedSlotId)?.label}
           disabled={uiDisabled}
-          onAdd={handleAddMaterial}
-          onChange={handleMaterialChange}
-          onMove={handleMoveMaterial}
-          onRemove={handleRemoveMaterial}
+          onMaterialClick={handleMaterialClick}
         />
+        <div className="recipe-column">
+          <RecipePanel
+            config={config}
+            materials={draft.materials}
+            selectedSlotId={selectedSlotId}
+            validationSummary={configurationErrors[0] ?? validation.summary}
+            resultIsStale={resultIsStale}
+            disabled={uiDisabled}
+            onSelectSlot={setSelectedSlotId}
+            onAssign={handleAssignMaterial}
+            onDecrement={handleDecrementSlot}
+            onClear={handleClearSlot}
+            onRun={handleRun}
+          />
+          <ResultPanel
+            ref={resultHeadingRef}
+            config={config}
+            result={result}
+            stale={resultIsStale}
+            configErrors={configurationErrors}
+            executionError={executionError}
+            onLocateEvidence={locateEvidence}
+          />
+        </div>
         <FactorPanel
           config={config}
           factors={draft.factors}
           errors={validation.factorErrors}
-          validationSummary={configurationErrors[0] ?? validation.summary}
-          resultIsStale={resultIsStale}
           disabled={uiDisabled}
           onChange={handleFactorChange}
-          onRun={handleRun}
-        />
-        <ResultPanel
-          ref={resultHeadingRef}
-          config={config}
-          result={result}
-          stale={resultIsStale}
-          configErrors={configurationErrors}
-          executionError={executionError}
-          onLocateEvidence={locateEvidence}
         />
       </main>
     </div>

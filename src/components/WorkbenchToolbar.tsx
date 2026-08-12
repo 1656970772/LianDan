@@ -35,7 +35,7 @@ export function WorkbenchToolbar({
       <div className="toolbar__brand">
         <div className="brand-mark" aria-hidden="true">丹</div>
         <div>
-          <h1>炼丹规则工作台</h1>
+          <h1>炼丹规则推演台</h1>
           <p>配置 {configVersion}</p>
         </div>
       </div>
